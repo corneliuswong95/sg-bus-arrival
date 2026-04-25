@@ -271,14 +271,35 @@ function busTypeIcon(type) {
     </svg>`;
   }
   if (type === 'BD') {
-    return `<svg class="type-icon" width="20" height="14" viewBox="0 0 30 18" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round" aria-label="Bendy bus">
-      <rect x="1"  y="3" width="11" height="10" rx="1.2"/>
-      <rect x="14" y="3" width="14" height="10" rx="1.2"/>
-      <path d="M12 8 L14 8"/>
-      <circle cx="4"  cy="15.5" r="1" fill="currentColor" stroke="none"/>
-      <circle cx="9"  cy="15.5" r="1" fill="currentColor" stroke="none"/>
-      <circle cx="20" cy="15.5" r="1" fill="currentColor" stroke="none"/>
-      <circle cx="25" cy="15.5" r="1" fill="currentColor" stroke="none"/>
+    return `<svg class="type-icon" width="34" height="16" viewBox="0 0 36 18" xmlns="http://www.w3.org/2000/svg" aria-label="Bendy bus">
+      <!-- front coach body -->
+      <rect x="2" y="3" width="14" height="11" rx="2" fill="currentColor"/>
+      <!-- rear coach body -->
+      <rect x="20" y="3" width="14" height="11" rx="2" fill="currentColor"/>
+      <!-- articulation bellows -->
+      <rect x="16" y="4.5" width="4" height="8" fill="currentColor"/>
+      <line x1="17" y1="4.5" x2="17" y2="12.5" stroke="#fff" stroke-width="0.5" opacity="0.65"/>
+      <line x1="18" y1="4.5" x2="18" y2="12.5" stroke="#fff" stroke-width="0.5" opacity="0.65"/>
+      <line x1="19" y1="4.5" x2="19" y2="12.5" stroke="#fff" stroke-width="0.5" opacity="0.65"/>
+      <!-- front coach windows (single deck) -->
+      <rect x="3.6"  y="5" width="3.2" height="3.4" rx="0.5" fill="#fff"/>
+      <rect x="7.6"  y="5" width="3.2" height="3.4" rx="0.5" fill="#fff"/>
+      <rect x="11.4" y="5" width="3.2" height="3.4" rx="0.5" fill="#fff"/>
+      <!-- rear coach windows (single deck) -->
+      <rect x="21.4" y="5" width="3.2" height="3.4" rx="0.5" fill="#fff"/>
+      <rect x="25.4" y="5" width="3.2" height="3.4" rx="0.5" fill="#fff"/>
+      <rect x="29.4" y="5" width="3.2" height="3.4" rx="0.5" fill="#fff"/>
+      <!-- headlight -->
+      <rect x="2" y="10.5" width="1.4" height="1.4" rx="0.3" fill="#fff"/>
+      <!-- wheels: 2 per coach -->
+      <circle cx="5.5"  cy="15" r="1.7" fill="currentColor"/>
+      <circle cx="12.5" cy="15" r="1.7" fill="currentColor"/>
+      <circle cx="23.5" cy="15" r="1.7" fill="currentColor"/>
+      <circle cx="30.5" cy="15" r="1.7" fill="currentColor"/>
+      <circle cx="5.5"  cy="15" r="0.7" fill="#fff"/>
+      <circle cx="12.5" cy="15" r="0.7" fill="#fff"/>
+      <circle cx="23.5" cy="15" r="0.7" fill="#fff"/>
+      <circle cx="30.5" cy="15" r="0.7" fill="#fff"/>
     </svg>`;
   }
   return '';
