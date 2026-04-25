@@ -52,6 +52,14 @@
   <!-- Zoom hint -->
   <div id="zoom-hint" class="hidden">Zoom in to see bus stops</div>
 
+  <!-- Clear route button (appears when a route is shown) -->
+  <button id="clear-route-btn" class="hidden">
+    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
+      <line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/>
+    </svg>
+    <span id="clear-route-label">Clear route</span>
+  </button>
+
   <!-- Locate me button -->
   <button id="locate-btn" aria-label="Go to my location">
     <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
@@ -61,11 +69,30 @@
     </svg>
   </button>
 
+  <!-- Nearby stops sheet (always-visible peek, drag up to expand) -->
+  <div id="nearby-sheet">
+    <div id="nearby-handle">
+      <div class="handle-bar"></div>
+      <div class="nearby-title">
+        <span>📍 Nearby Stops</span>
+        <svg class="chevron" width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3">
+          <polyline points="18 15 12 9 6 15"/>
+        </svg>
+      </div>
+    </div>
+    <div id="nearby-list"></div>
+  </div>
+
   <!-- Bottom sheet -->
   <div id="bottom-sheet">
     <div id="drag-handle"></div>
 
     <div id="sheet-header">
+      <button id="back-btn" class="hidden" aria-label="Back to nearby stops">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
+          <polyline points="15 18 9 12 15 6"/>
+        </svg>
+      </button>
       <div id="stop-details">
         <div id="stop-top">
           <span id="stop-code-badge"></span>

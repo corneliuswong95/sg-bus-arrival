@@ -215,12 +215,12 @@ html, body {
 /* ── Locate button ───────────────────────────────────────────────── */
 #locate-btn {
   position: fixed;
-  right: 14px;
+  right: 10px;
   bottom: 110px;
   z-index: 300;
-  width: 46px;
-  height: 46px;
-  border-radius: 50%;
+  width: 40px;
+  height: 40px;
+  border-radius: 8px;
   background: white;
   border: none;
   box-shadow: var(--shadow-sm);
@@ -233,6 +233,36 @@ html, body {
 }
 
 #locate-btn:active { box-shadow: none; background: #f5f5f5; }
+
+/* ── Clear route button ──────────────────────────────────────────── */
+#clear-route-btn {
+  position: fixed;
+  top: max(74px, calc(env(safe-area-inset-top) + 74px));
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 350;
+  background: var(--red);
+  color: white;
+  border: none;
+  border-radius: 22px;
+  padding: 8px 16px;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  box-shadow: var(--shadow-md);
+  font-family: inherit;
+  white-space: nowrap;
+}
+
+#clear-route-btn:active { background: var(--red-dark, #b71c1c); }
+#clear-route-btn.hidden { display: none; }
+
+/* Make bus chips look clickable */
+.bus-chip { cursor: pointer; transition: transform .12s, box-shadow .12s; }
+.bus-chip:active { transform: scale(0.97); }
 
 /* ── Stop markers ────────────────────────────────────────────────── */
 .stop-marker {
@@ -256,6 +286,158 @@ html, body {
   box-shadow: 0 2px 10px rgba(21,101,192,.45);
 }
 
+/* ── Nearby sheet (drag-up panel) ────────────────────────────────── */
+#nearby-sheet {
+  position: fixed;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  z-index: 350;
+  background: white;
+  border-radius: var(--radius) var(--radius) 0 0;
+  box-shadow: 0 -2px 14px rgba(0,0,0,.10);
+  transform: translateY(calc(100% - 56px));
+  transition: transform .35s cubic-bezier(.32,.72,0,1);
+  max-height: 55vh;
+  display: flex;
+  flex-direction: column;
+  padding-bottom: env(safe-area-inset-bottom, 0);
+}
+
+#nearby-sheet.expanded { transform: translateY(0); }
+#nearby-sheet.dragging  { transition: none; }
+
+#nearby-handle {
+  padding: 8px 0 10px;
+  cursor: grab;
+  user-select: none;
+  flex-shrink: 0;
+  touch-action: none;
+}
+
+#nearby-handle:active { cursor: grabbing; }
+
+#nearby-handle .handle-bar {
+  width: 38px;
+  height: 4px;
+  border-radius: 2px;
+  background: #d0d0d0;
+  margin: 0 auto 8px;
+}
+
+.nearby-title {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--text);
+}
+
+.nearby-title .chevron {
+  color: var(--text-muted);
+  transition: transform .3s;
+}
+
+#nearby-sheet.expanded .nearby-title .chevron { transform: rotate(180deg); }
+
+#nearby-list {
+  overflow-y: auto;
+  padding: 4px 12px 16px;
+  flex: 1;
+  -webkit-overflow-scrolling: touch;
+}
+
+.nearby-item {
+  display: grid;
+  grid-template-columns: 56px 1fr auto;
+  grid-template-rows: auto auto;
+  column-gap: 12px;
+  row-gap: 2px;
+  padding: 12px;
+  margin-bottom: 8px;
+  background: #fafafa;
+  border-radius: 12px;
+  cursor: pointer;
+  align-items: center;
+  border: 1px solid var(--border);
+}
+
+.nearby-item:active { background: #f0f0f0; }
+
+.nearby-code {
+  grid-column: 1;
+  grid-row: 1 / 3;
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--red);
+  background: var(--red-light);
+  padding: 6px;
+  border-radius: 6px;
+  text-align: center;
+  font-feature-settings: "tnum";
+}
+
+.nearby-name {
+  grid-column: 2;
+  grid-row: 1;
+  font-size: 14px;
+  font-weight: 500;
+  color: var(--text);
+  text-align: left;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.nearby-road {
+  grid-column: 2;
+  grid-row: 2;
+  font-size: 12px;
+  color: var(--text-muted);
+  text-align: left;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.nearby-distance {
+  grid-column: 3;
+  grid-row: 1 / 3;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--blue);
+  white-space: nowrap;
+  text-align: right;
+}
+
+.nearby-empty {
+  text-align: center;
+  padding: 18px 16px;
+  color: var(--text-muted);
+  font-size: 13px;
+}
+
+#load-more-btn {
+  display: block;
+  width: 100%;
+  margin: 4px 0 8px;
+  padding: 12px;
+  background: white;
+  color: var(--blue);
+  border: 1px dashed var(--border);
+  border-radius: 12px;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  font-family: inherit;
+  transition: background .15s, border-color .15s;
+}
+
+#load-more-btn:hover { border-color: #b0bec5; }
+#load-more-btn:active { background: #f0f0f0; }
+
 /* ── Bottom sheet ────────────────────────────────────────────────── */
 #bottom-sheet {
   position: fixed;
@@ -268,7 +450,8 @@ html, body {
   box-shadow: 0 -4px 24px rgba(0,0,0,.14);
   transform: translateY(100%);
   transition: transform .38s cubic-bezier(.32,.72,0,1);
-  max-height: 68vh;
+  height: 92vh;
+  max-height: 92vh;
   display: flex;
   flex-direction: column;
   padding-bottom: env(safe-area-inset-bottom, 0);
@@ -277,23 +460,36 @@ html, body {
 #bottom-sheet.open { transform: translateY(0); }
 
 #drag-handle {
+  width: 100%;
+  padding: 10px 0 6px;
+  display: flex;
+  justify-content: center;
+  flex-shrink: 0;
+  cursor: grab;
+  touch-action: none;
+}
+#drag-handle::before {
+  content: "";
   width: 38px;
   height: 4px;
   border-radius: 2px;
   background: #d0d0d0;
-  margin: 10px auto 6px;
-  flex-shrink: 0;
 }
+#drag-handle:active { cursor: grabbing; }
+#bottom-sheet.dragging { transition: none !important; }
 
 #sheet-header {
   background: white;
   padding: 10px 16px 14px;
   display: flex;
   align-items: flex-start;
-  justify-content: space-between;
-  gap: 12px;
+  gap: 10px;
   flex-shrink: 0;
 }
+
+#stop-details { min-width: 0; flex: 0 1 auto; }
+
+#close-btn { margin-left: auto; }
 
 #stop-top {
   display: flex;
@@ -339,6 +535,23 @@ html, body {
   color: #666;
   flex-shrink: 0;
 }
+
+#back-btn {
+  border: none;
+  background: #f0f0f0;
+  width: 30px;
+  height: 30px;
+  border-radius: 50%;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #666;
+  flex-shrink: 0;
+}
+
+#back-btn:active { background: #e0e0e0; }
+#back-btn.hidden { display: none; }
 
 #meta-bar {
   background: white;
@@ -412,38 +625,67 @@ html, body {
   padding: 14px;
   margin-bottom: 8px;
   box-shadow: 0 1px 4px rgba(0,0,0,.06);
+  cursor: pointer;
+  transition: background .15s, box-shadow .15s, transform .12s;
+  border: 2px solid transparent;
+}
+.service-card:active { transform: scale(0.995); }
+.service-card.route-active {
+  border-color: var(--red);
+  background: #fff5f5;
+  box-shadow: 0 2px 10px rgba(211,47,47,.18);
 }
 
 .svc-header {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: 10px;
   margin-bottom: 10px;
 }
 
 .svc-no {
-  font-size: 26px;
+  font-size: 24px;
   font-weight: 800;
   color: var(--red);
-  min-width: 62px;
+  min-width: 54px;
   line-height: 1;
+  font-feature-settings: "tnum";
+  letter-spacing: -0.3px;
 }
 
 .svc-dest {
-  font-size: 13px;
-  color: var(--text-muted);
-  flex: 1;
+  background: #fff3c4;
+  color: #5d4037;
+  padding: 3px 8px;
+  border-radius: 6px;
+  font-weight: 700;
+  font-size: 11px;
+  letter-spacing: 0.4px;
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  flex: 0 1 auto;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
+  max-width: 55%;
+  align-self: center;
 }
 
 .svc-operator {
   font-size: 11px;
-  color: #bdbdbd;
-  background: #f5f5f5;
-  padding: 2px 6px;
-  border-radius: 4px;
+  font-weight: 800;
+  color: white;
+  padding: 3px 8px;
+  border-radius: 6px;
+  flex-shrink: 0;
+  letter-spacing: .4px;
+  text-transform: uppercase;
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  line-height: 1.3;
+  margin-left: auto;
+}
+
+.type-icon {
+  color: var(--text-muted);
   flex-shrink: 0;
 }
 
@@ -458,17 +700,17 @@ html, body {
   flex-direction: column;
   align-items: center;
   justify-content: center;
-  gap: 3px;
-  padding: 8px 4px;
+  gap: 4px;
+  padding: 10px 4px;
   border-radius: 10px;
-  border: 1.5px solid var(--border);
+  border: 1px solid #ececec;
   background: #fafafa;
-  min-height: 58px;
+  min-height: 60px;
 }
 
-.bus-chip.sea { border-color: var(--green-border); background: var(--green-bg); }
-.bus-chip.sda { border-color: var(--orange-border); background: var(--orange-bg); }
-.bus-chip.lsd { border-color: var(--lsd-border); background: var(--lsd-bg); }
+.bus-chip.sea { background: var(--green-bg);  border-color: #dcedc8; }
+.bus-chip.sda { background: var(--orange-bg); border-color: #ffe9b3; }
+.bus-chip.lsd { background: var(--lsd-bg);    border-color: #ffcdd2; }
 
 .chip-time {
   font-size: 17px;
@@ -486,8 +728,6 @@ html, body {
   font-size: 11px;
   color: var(--text-muted);
 }
-
-.chip-wab { font-size: 11px; }
 
 /* ── Empty/error states ──────────────────────────────────────────── */
 .state-msg {
@@ -508,10 +748,15 @@ html, body {
   overflow: hidden;
 }
 
+/* Lift zoom controls above the locate button so the Nearby Stops sheet doesn't cover them */
+.leaflet-bottom.leaflet-right .leaflet-control-zoom {
+  margin-bottom: 165px !important;
+}
+
 .leaflet-control-zoom a {
-  width: 38px !important;
-  height: 38px !important;
-  line-height: 38px !important;
+  width: 40px !important;
+  height: 40px !important;
+  line-height: 40px !important;
   font-size: 18px !important;
   color: var(--text) !important;
   border-bottom: 1px solid var(--border) !important;
@@ -540,6 +785,21 @@ html, body {
 
   #drag-handle { display: none; }
 
+  #nearby-sheet {
+    max-width: 360px;
+    left: 16px;
+    right: auto;
+    bottom: 16px;
+    border-radius: var(--radius);
+    transform: translateY(calc(100% + 16px - 56px));
+  }
+
+  #nearby-sheet.expanded { transform: translateY(0); }
+
   #locate-btn { bottom: 16px; }
   #zoom-hint  { bottom: 70px; }
+
+  .leaflet-bottom.leaflet-right .leaflet-control-zoom {
+    margin-bottom: 75px !important;
+  }
 }

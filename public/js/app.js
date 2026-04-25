@@ -5,6 +5,13 @@ let allStops = [];
 const stopByCode = new Map();  // BusStopCode → stop object
 let selectedCode = null;
 let refreshTimer = null;
+let openedFromNearby = false;
+let nearbyShowCount = 10;
+const NEARBY_INCREMENT = 10;
+const NEARBY_MAX = 50;
+
+let currentRouteLayer = null;
+let routeServiceNo = null;
 
 // ── Boot ────────────────────────────────────────────────────────────────────
 document.addEventListener('DOMContentLoaded', async () => {
@@ -12,7 +19,9 @@ document.addEventListener('DOMContentLoaded', async () => {
   setupSearch();
   setupLocate();
   setupSheet();
+  setupNearbySheet();
   await loadAllStops();
+  updateNearbyList();
 });
 
 // ── Map ─────────────────────────────────────────────────────────────────────
@@ -32,7 +41,10 @@ function initMap() {
 
   L.control.zoom({ position: 'bottomright' }).addTo(map);
 
-  map.on('moveend zoomend', updateMarkersInView);
+  map.on('moveend zoomend', () => {
+    updateMarkersInView();
+    updateNearbyList();
+  });
 }
 
 // ── Stops ───────────────────────────────────────────────────────────────────
@@ -131,16 +143,42 @@ function refreshMarkerStyle(code) {
 }
 
 // ── Stop selection ───────────────────────────────────────────────────────────
-async function selectStop(code) {
+async function selectStop(code, opts = {}) {
   selectedCode = code;
-  refreshMarkerStyle(code);
+  openedFromNearby = !!opts.fromNearby;
 
   const stop = stopByCode.get(code);
+  if (!stop) return;
+
+  refreshMarkerStyle(code);
   openSheet(stop);
+  panMapToStop(stop);
+
   await loadArrivals(code);
 
   clearInterval(refreshTimer);
   refreshTimer = setInterval(() => loadArrivals(code), 30_000);
+}
+
+// Center the map on the selected stop. On mobile, offset upward so the marker
+// stays visible in the area above the bottom sheet.
+function panMapToStop(stop) {
+  const lat = +stop.Latitude;
+  const lng = +stop.Longitude;
+  const zoom = Math.max(map.getZoom(), 17);
+
+  const isMobile = window.innerWidth < 600;
+  if (!isMobile) {
+    map.flyTo([lat, lng], zoom, { duration: 0.5 });
+    return;
+  }
+
+  const mapH = map.getSize().y;
+  const targetPx = map.project([lat, lng], zoom);
+  // Shift the projected center DOWN by 25% of viewport height so the marker
+  // appears in the upper portion of the screen (clear of the bottom sheet).
+  const newCenter = map.unproject(targetPx.add([0, mapH * 0.25]), zoom);
+  map.flyTo(newCenter, zoom, { duration: 0.5 });
 }
 
 // ── Arrivals ─────────────────────────────────────────────────────────────────
@@ -174,12 +212,13 @@ function renderArrivals(data) {
   list.innerHTML = services.map(svc => {
     const dest = stopByCode.get(svc.NextBus?.DestinationCode)?.Description || '';
     const [b1, b2, b3] = [svc.NextBus, svc.NextBus2, svc.NextBus3];
+    const isActive = svc.ServiceNo === routeServiceNo;
     return `
-      <div class="service-card">
+      <div class="service-card${isActive ? ' route-active' : ''}" data-service="${escHtml(svc.ServiceNo)}">
         <div class="svc-header">
           <span class="svc-no">${escHtml(svc.ServiceNo)}</span>
-          ${dest ? `<span class="svc-dest">→ ${escHtml(dest)}</span>` : ''}
-          <span class="svc-operator">${escHtml(svc.Operator)}</span>
+          ${dest ? `<span class="svc-dest">${escHtml(dest.toUpperCase())}</span>` : ''}
+          ${operatorBadge(svc.Operator)}
         </div>
         <div class="arrival-row">
           ${busChip(b1)}${busChip(b2)}${busChip(b3)}
@@ -196,34 +235,113 @@ function busChip(bus) {
   const mins = Math.round((new Date(bus.EstimatedArrival) - Date.now()) / 60_000);
   const timeText = mins <= 0 ? 'Arr' : `${mins}m`;
   const loadCls = { SEA: 'sea', SDA: 'sda', LSD: 'lsd' }[bus.Load] || '';
-  const typeLabel = bus.Type === 'DD' ? 'Dbl' : bus.Type === 'BD' ? 'Bndy' : '';
-  const wab = bus.Feature === 'WAB' ? '<span class="chip-wab">♿</span>' : '';
+  const typeIcon = busTypeIcon(bus.Type);
 
   return `
     <div class="bus-chip ${loadCls}">
       <span class="chip-time ${mins <= 0 ? 'arr' : ''}">${timeText}</span>
-      <div class="chip-meta">
-        ${typeLabel ? `<span>${typeLabel}</span>` : ''}
-        ${wab}
-      </div>
+      ${typeIcon ? `<div class="chip-meta">${typeIcon}</div>` : ''}
     </div>`;
 }
 
+// SVG icon for bus body type (double-decker / bendy). Single-deck = no icon.
+function busTypeIcon(type) {
+  if (type === 'DD') {
+    return `<svg class="type-icon" width="22" height="20" viewBox="0 0 24 22" xmlns="http://www.w3.org/2000/svg" aria-label="Double-decker">
+      <!-- bus body -->
+      <rect x="2" y="2" width="20" height="16" rx="2.4" fill="currentColor"/>
+      <!-- upper deck windows -->
+      <rect x="3.6"  y="4"   width="3.2" height="3" rx="0.5" fill="#fff"/>
+      <rect x="7.6"  y="4"   width="3.2" height="3" rx="0.5" fill="#fff"/>
+      <rect x="11.6" y="4"   width="3.2" height="3" rx="0.5" fill="#fff"/>
+      <rect x="15.6" y="4"   width="3.2" height="3" rx="0.5" fill="#fff"/>
+      <!-- lower deck windows -->
+      <rect x="3.6"  y="9"   width="3.2" height="3" rx="0.5" fill="#fff"/>
+      <rect x="7.6"  y="9"   width="3.2" height="3" rx="0.5" fill="#fff"/>
+      <rect x="11.6" y="9"   width="3.2" height="3" rx="0.5" fill="#fff"/>
+      <!-- door -->
+      <rect x="15.6" y="9"   width="3.2" height="6.5" rx="0.5" fill="#fff"/>
+      <!-- headlight -->
+      <rect x="20"   y="14"  width="1.4" height="1.4" rx="0.3" fill="#fff"/>
+      <!-- wheels -->
+      <circle cx="6"  cy="19" r="2"  fill="currentColor"/>
+      <circle cx="18" cy="19" r="2"  fill="currentColor"/>
+      <circle cx="6"  cy="19" r="0.8" fill="#fff"/>
+      <circle cx="18" cy="19" r="0.8" fill="#fff"/>
+    </svg>`;
+  }
+  if (type === 'BD') {
+    return `<svg class="type-icon" width="20" height="14" viewBox="0 0 30 18" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round" aria-label="Bendy bus">
+      <rect x="1"  y="3" width="11" height="10" rx="1.2"/>
+      <rect x="14" y="3" width="14" height="10" rx="1.2"/>
+      <path d="M12 8 L14 8"/>
+      <circle cx="4"  cy="15.5" r="1" fill="currentColor" stroke="none"/>
+      <circle cx="9"  cy="15.5" r="1" fill="currentColor" stroke="none"/>
+      <circle cx="20" cy="15.5" r="1" fill="currentColor" stroke="none"/>
+      <circle cx="25" cy="15.5" r="1" fill="currentColor" stroke="none"/>
+    </svg>`;
+  }
+  return '';
+}
+
+// Operator "logo" — colored pill with the brand short-name
+function operatorBadge(op) {
+  const map = {
+    SBST: { label: 'SBS',   bg: '#6a1b9a' },
+    SMRT: { label: 'SMRT',  bg: '#d71921' },
+    TTS:  { label: 'Tower', bg: '#2e7d32' },
+    GAS:  { label: 'Go',    bg: '#f57c00' },
+  };
+  const style = map[op] || { label: op || '', bg: '#757575' };
+  return `<span class="svc-operator" style="background:${style.bg}">${escHtml(style.label)}</span>`;
+}
+
 // ── Bottom sheet ─────────────────────────────────────────────────────────────
+function getSheetSnaps() {
+  // Sheet is 92vh tall. translateY(0) = fully open. Larger px = more hidden.
+  const sheet = document.getElementById('bottom-sheet');
+  const h = sheet.getBoundingClientRect().height || window.innerHeight * 0.92;
+  return {
+    full: 0,                       // entire 92vh visible
+    mid: Math.round(h * 0.28),     // ~66vh visible (default)
+    peek: Math.max(0, Math.round(h - 64)), // just handle + header strip
+    max: Math.max(0, Math.round(h - 64)),  // clamp lower bound
+  };
+}
+
+function setSheetOffset(px) {
+  const sheet = document.getElementById('bottom-sheet');
+  const { max } = getSheetSnaps();
+  const clamped = Math.max(0, Math.min(max, px));
+  sheet.style.transform = `translateY(${clamped}px)`;
+}
+
 function openSheet(stop) {
+  document.getElementById('nearby-sheet').classList.remove('expanded');
+  document.getElementById('back-btn').classList.toggle('hidden', !openedFromNearby);
   document.getElementById('stop-code-badge').textContent = stop.BusStopCode;
   document.getElementById('stop-name').textContent = stop.Description;
   document.getElementById('stop-road').textContent = stop.RoadName;
   document.getElementById('services-list').innerHTML = '';
   document.getElementById('updated-label').textContent = '—';
-  document.getElementById('bottom-sheet').classList.add('open');
+  const sheet = document.getElementById('bottom-sheet');
+  sheet.classList.add('open');
+  // Default to mid snap on open (only on mobile-style stack layout)
+  if (window.innerWidth < 600) {
+    requestAnimationFrame(() => setSheetOffset(getSheetSnaps().mid));
+  } else {
+    sheet.style.transform = '';
+  }
 }
 
 function closeSheet() {
-  document.getElementById('bottom-sheet').classList.remove('open');
+  const sheet = document.getElementById('bottom-sheet');
+  sheet.classList.remove('open');
+  sheet.style.transform = '';
   clearInterval(refreshTimer);
   selectedCode = null;
   refreshMarkerStyle(null);
+  clearRoute();
 }
 
 function setupSheet() {
@@ -231,6 +349,334 @@ function setupSheet() {
   document.getElementById('refresh-btn').addEventListener('click', () => {
     if (selectedCode) loadArrivals(selectedCode);
   });
+  document.getElementById('back-btn').addEventListener('click', () => {
+    closeSheet();
+    document.getElementById('nearby-sheet').classList.add('expanded');
+  });
+
+  // Click a service card → show its route on the map
+  document.getElementById('services-list').addEventListener('click', e => {
+    const card = e.target.closest('.service-card');
+    if (!card) return;
+    const service = card.dataset.service;
+    if (!service) return;
+    if (service === routeServiceNo) {
+      clearRoute();
+    } else {
+      showRoute(service);
+    }
+  });
+
+  document.getElementById('clear-route-btn').addEventListener('click', clearRoute);
+
+  // ── Drag-to-resize bottom sheet ─────────────────────────────────────
+  const sheet  = document.getElementById('bottom-sheet');
+  const handle = document.getElementById('drag-handle');
+
+  let startY = null;
+  let startOffset = 0;
+
+  function currentOffset() {
+    const m = (sheet.style.transform || '').match(/translateY\((-?\d+(?:\.\d+)?)px\)/);
+    return m ? parseFloat(m[1]) : 0;
+  }
+  function dragStart(y) {
+    if (window.innerWidth >= 600) return; // desktop: side panel, no drag
+    startY = y;
+    startOffset = currentOffset();
+    sheet.classList.add('dragging');
+  }
+  function dragMove(y) {
+    if (startY === null) return;
+    setSheetOffset(startOffset + (y - startY));
+  }
+  function dragEnd(y) {
+    if (startY === null) return;
+    sheet.classList.remove('dragging');
+    const cur = currentOffset();
+    const velocity = y - startY; // + = swiped down, - = swiped up
+    const { full, mid, peek } = getSheetSnaps();
+
+    let target;
+    if (Math.abs(velocity) > 60) {
+      // Flick: pick next snap in flick direction
+      const ordered = [full, mid, peek];
+      const nearestIdx = ordered.reduce((best, v, i) =>
+        Math.abs(v - cur) < Math.abs(ordered[best] - cur) ? i : best, 0);
+      const dir = velocity > 0 ? 1 : -1;
+      target = ordered[Math.max(0, Math.min(ordered.length - 1, nearestIdx + dir))];
+    } else {
+      // Settle: snap to nearest
+      target = [full, mid, peek].reduce((best, v) =>
+        Math.abs(v - cur) < Math.abs(best - cur) ? v : best, full);
+    }
+    setSheetOffset(target);
+    startY = null;
+  }
+
+  handle.addEventListener('touchstart', e => dragStart(e.touches[0].clientY), { passive: true });
+  handle.addEventListener('touchmove',  e => dragMove(e.touches[0].clientY),  { passive: true });
+  handle.addEventListener('touchend',   e => dragEnd(e.changedTouches[0].clientY));
+
+  handle.addEventListener('mousedown', e => {
+    e.preventDefault();
+    dragStart(e.clientY);
+    const onMove = ev => dragMove(ev.clientY);
+    const onUp = ev => {
+      dragEnd(ev.clientY);
+      window.removeEventListener('mousemove', onMove);
+      window.removeEventListener('mouseup', onUp);
+    };
+    window.addEventListener('mousemove', onMove);
+    window.addEventListener('mouseup', onUp);
+  });
+}
+
+// ── Route overview ───────────────────────────────────────────────────────────
+async function showRoute(serviceNo) {
+  const btn = document.getElementById('clear-route-btn');
+  const label = document.getElementById('clear-route-label');
+  label.textContent = `Loading ${serviceNo}…`;
+  btn.classList.remove('hidden');
+
+  try {
+    const res = await fetch(`/api/route?service=${encodeURIComponent(serviceNo)}`);
+    if (!res.ok) throw new Error();
+    const stops = await res.json();
+    if (!stops.length) {
+      label.textContent = `No route for ${serviceNo}`;
+      setTimeout(() => { if (routeServiceNo == null) btn.classList.add('hidden'); }, 1500);
+      return;
+    }
+
+    // Group by direction; pick the direction containing the selected stop
+    // (fall back to direction 1).
+    const byDir = new Map();
+    for (const r of stops) {
+      if (!byDir.has(r.Direction)) byDir.set(r.Direction, []);
+      byDir.get(r.Direction).push(r);
+    }
+    let chosen = null;
+    if (selectedCode) {
+      for (const arr of byDir.values()) {
+        if (arr.some(r => r.BusStopCode === selectedCode)) { chosen = arr; break; }
+      }
+    }
+    if (!chosen) chosen = byDir.get(1) || [...byDir.values()][0];
+    chosen.sort((a, b) => a.StopSequence - b.StopSequence);
+
+    // Build polyline coords from cached stop locations
+    const coords = chosen
+      .map(r => stopByCode.get(r.BusStopCode))
+      .filter(Boolean)
+      .map(s => [+s.Latitude, +s.Longitude])
+      .filter(([la, ln]) => Number.isFinite(la) && Number.isFinite(ln));
+
+    if (coords.length < 2) {
+      label.textContent = `Route data unavailable`;
+      return;
+    }
+
+    if (currentRouteLayer) currentRouteLayer.remove();
+
+    // Try road-snapped geometry first; fall back to straight stop-to-stop line.
+    let lineCoords = coords;
+    try {
+      const direction = chosen[0]?.Direction || 1;
+      const r = await fetch(`/api/road-path?service=${encodeURIComponent(serviceNo)}&direction=${direction}`);
+      if (r.ok) {
+        const data = await r.json();
+        if (data.coordinates?.length) {
+          lineCoords = data.coordinates.map(([lng, lat]) => [lat, lng]);
+        }
+      }
+    } catch { /* fall back to straight line */ }
+
+    const line = L.polyline(lineCoords, {
+      color: '#d32f2f',
+      weight: 5,
+      opacity: 0.85,
+      lineCap: 'round',
+      lineJoin: 'round',
+    });
+
+    const dots = chosen.map(r => {
+      const s = stopByCode.get(r.BusStopCode);
+      if (!s) return null;
+      const lat = +s.Latitude, lng = +s.Longitude;
+      if (!Number.isFinite(lat) || !Number.isFinite(lng)) return null;
+      return L.circleMarker([lat, lng], {
+        radius: 4,
+        fillColor: '#fff',
+        color: '#d32f2f',
+        weight: 2,
+        fillOpacity: 1,
+      }).bindTooltip(`${s.BusStopCode} · ${s.Description}`, { direction: 'top' });
+    }).filter(Boolean);
+
+    currentRouteLayer = L.layerGroup([line, ...dots]).addTo(map);
+    routeServiceNo = serviceNo;
+
+    // Re-render arrivals to highlight the active card
+    refreshActiveCard();
+
+    // Fit map to route bounds with padding for the bottom sheet
+    const bounds = line.getBounds();
+    const isMobile = window.innerWidth < 600;
+    map.fitBounds(bounds, {
+      paddingTopLeft: [20, 80],
+      paddingBottomRight: [20, isMobile ? 360 : 60],
+    });
+
+    label.textContent = `Clear route ${serviceNo}`;
+  } catch {
+    label.textContent = 'Failed to load route';
+    setTimeout(() => { if (routeServiceNo == null) btn.classList.add('hidden'); }, 1500);
+  }
+}
+
+function clearRoute() {
+  if (currentRouteLayer) {
+    currentRouteLayer.remove();
+    currentRouteLayer = null;
+  }
+  routeServiceNo = null;
+  document.getElementById('clear-route-btn').classList.add('hidden');
+  refreshActiveCard();
+}
+
+function refreshActiveCard() {
+  document.querySelectorAll('#services-list .service-card').forEach(card => {
+    card.classList.toggle('route-active', card.dataset.service === routeServiceNo);
+  });
+}
+
+// ── Nearby sheet (drag-up) ──────────────────────────────────────────────────
+function setupNearbySheet() {
+  const sheet  = document.getElementById('nearby-sheet');
+  const handle = document.getElementById('nearby-handle');
+  const list   = document.getElementById('nearby-list');
+
+  // Tap on handle = toggle
+  let didDrag = false;
+  handle.addEventListener('click', () => {
+    if (didDrag) { didDrag = false; return; }
+    sheet.classList.toggle('expanded');
+  });
+
+  // Tap a stop in the list = open arrivals; tap "Load more" = grow the list
+  list.addEventListener('click', e => {
+    if (e.target.closest('#load-more-btn')) {
+      nearbyShowCount = Math.min(nearbyShowCount + NEARBY_INCREMENT, NEARBY_MAX);
+      updateNearbyList();
+      return;
+    }
+    const item = e.target.closest('.nearby-item');
+    if (!item) return;
+    const stop = stopByCode.get(item.dataset.code);
+    if (!stop) return;
+    selectStop(stop.BusStopCode, { fromNearby: true });
+  });
+
+  // Drag handling (touch + mouse)
+  let startY = null;
+  let startExpanded = false;
+  let peekOffset = 0;
+
+  function dragStart(y) {
+    startY = y;
+    startExpanded = sheet.classList.contains('expanded');
+    peekOffset = sheet.getBoundingClientRect().height - 56;
+    sheet.classList.add('dragging');
+    didDrag = false;
+  }
+
+  function dragMove(y) {
+    if (startY === null) return;
+    const delta = y - startY;
+    if (Math.abs(delta) > 4) didDrag = true;
+    const base = startExpanded ? 0 : peekOffset;
+    const offset = Math.max(0, Math.min(peekOffset, base + delta));
+    sheet.style.transform = `translateY(${offset}px)`;
+  }
+
+  function dragEnd(y) {
+    if (startY === null) return;
+    const delta = y - startY;
+    sheet.classList.remove('dragging');
+    sheet.style.transform = '';
+
+    if (startExpanded && delta > 60) {
+      sheet.classList.remove('expanded');
+    } else if (!startExpanded && delta < -60) {
+      sheet.classList.add('expanded');
+    } else {
+      sheet.classList.toggle('expanded', startExpanded);
+    }
+    startY = null;
+  }
+
+  handle.addEventListener('touchstart', e => dragStart(e.touches[0].clientY), { passive: true });
+  handle.addEventListener('touchmove',  e => dragMove(e.touches[0].clientY),  { passive: true });
+  handle.addEventListener('touchend',   e => dragEnd(e.changedTouches[0].clientY));
+
+  handle.addEventListener('mousedown', e => {
+    dragStart(e.clientY);
+    const onMove = ev => dragMove(ev.clientY);
+    const onUp = ev => {
+      dragEnd(ev.clientY);
+      window.removeEventListener('mousemove', onMove);
+      window.removeEventListener('mouseup', onUp);
+    };
+    window.addEventListener('mousemove', onMove);
+    window.addEventListener('mouseup', onUp);
+  });
+}
+
+function updateNearbyList() {
+  if (!allStops.length) return;
+  const list = document.getElementById('nearby-list');
+
+  const center = userMarker?.getLatLng?.() || map.getCenter();
+  const cLat = center.lat, cLng = center.lng;
+
+  const ranked = allStops
+    .map(s => ({ s, d: haversineKm(cLat, cLng, +s.Latitude, +s.Longitude) }))
+    .filter(x => Number.isFinite(x.d))
+    .sort((a, b) => a.d - b.d);
+
+  if (!ranked.length) {
+    list.innerHTML = '<div class="nearby-empty">No nearby stops found.</div>';
+    return;
+  }
+
+  const visible = ranked.slice(0, nearbyShowCount);
+  const hasMore = nearbyShowCount < Math.min(ranked.length, NEARBY_MAX);
+
+  list.innerHTML = visible.map(({ s, d }) => `
+    <div class="nearby-item" data-code="${s.BusStopCode}">
+      <span class="nearby-code">${s.BusStopCode}</span>
+      <span class="nearby-name">${escHtml(s.Description)}</span>
+      <span class="nearby-road">${escHtml(s.RoadName)}</span>
+      <span class="nearby-distance">${formatDistance(d)}</span>
+    </div>`).join('') + (hasMore
+      ? `<button id="load-more-btn" type="button">Load more</button>`
+      : '');
+}
+
+function haversineKm(lat1, lng1, lat2, lng2) {
+  const R = 6371;
+  const toRad = x => x * Math.PI / 180;
+  const dLat = toRad(lat2 - lat1);
+  const dLng = toRad(lng2 - lng1);
+  const a = Math.sin(dLat/2)**2 +
+            Math.cos(toRad(lat1)) * Math.cos(toRad(lat2)) * Math.sin(dLng/2)**2;
+  return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+}
+
+function formatDistance(km) {
+  if (km < 1) return Math.round(km * 1000) + ' m away';
+  return km.toFixed(1) + ' km away';
 }
 
 // ── Search ───────────────────────────────────────────────────────────────────
@@ -269,9 +715,7 @@ function setupSearch() {
     results.classList.add('hidden');
     input.blur();
 
-    map.setView([+stop.Latitude, +stop.Longitude], 17, { animate: true });
-    // Give the map time to render the marker before selecting
-    setTimeout(() => selectStop(stop.BusStopCode), 400);
+    selectStop(stop.BusStopCode);
   });
 
   clearBtn.addEventListener('click', () => {
@@ -316,6 +760,7 @@ function setupLocate() {
           weight: 2.5,
           fillOpacity: 1,
         }).addTo(map).bindPopup('You are here');
+        updateNearbyList();
       },
       () => alert('Unable to access your location.')
     );
