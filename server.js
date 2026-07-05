@@ -7,6 +7,11 @@ const PORT = process.env.PORT || 3000;
 const LTA_API_KEY = process.env.LTA_API_KEY;
 const LTA_BASE = 'https://datamall2.mytransport.sg/ltaodataservice';
 
+// Trust the proxy (Vercel / any reverse proxy) so req.ip reflects the real
+// client IP from the X-Forwarded-For header instead of the proxy's address.
+app.set('trust proxy', true);
+
+app.use(express.json());
 app.use(express.static(path.join(__dirname, 'public')));
 
 // Fetch with retry/backoff — LTA returns 500 under high concurrency.
@@ -259,12 +264,38 @@ app.get('/api/postal', async (req, res) => {
   }
 });
 
-app.listen(PORT, () => {
-  console.log(`SG Bus Arrival running → http://localhost:${PORT}`);
-  // Pre-warm the bus stops cache so the first page load is instant
-  if (LTA_API_KEY && LTA_API_KEY !== 'your_api_key_here') {
-    fetchAllBusStops()
-      .then(() => fetchAllBusRoutes())
-      .catch(err => console.error('Pre-warm failed:', err.message));
-  }
+// ── Search logging ──────────────────────────────────────────────────────────
+// Records what users search for + their IP. Uses console.log so the output is
+// captured by the host's runtime logs (e.g. Vercel → Project → Logs).
+app.post('/api/log-search', (req, res) => {
+  const query = String(req.body?.query || '').slice(0, 200);
+  // Prefer the left-most X-Forwarded-For entry (the original client) when present.
+  const fwd = req.headers['x-forwarded-for'];
+  const ip = (Array.isArray(fwd) ? fwd[0] : fwd || '').split(',')[0].trim() || req.ip || '';
+
+  console.log(`[SEARCH] ${JSON.stringify({
+    ts: new Date().toISOString(),
+    ip,
+    query,
+    action: req.body?.action || 'search',
+    ua: req.headers['user-agent'] || '',
+  })}`);
+
+  res.status(204).end();
 });
+
+// Only start a long-running listener when run directly (local dev). On Vercel
+// the exported app is invoked as a serverless function instead.
+if (require.main === module) {
+  app.listen(PORT, () => {
+    console.log(`SG Bus Arrival running → http://localhost:${PORT}`);
+    // Pre-warm the bus stops cache so the first page load is instant
+    if (LTA_API_KEY && LTA_API_KEY !== 'your_api_key_here') {
+      fetchAllBusStops()
+        .then(() => fetchAllBusRoutes())
+        .catch(err => console.error('Pre-warm failed:', err.message));
+    }
+  });
+}
+
+module.exports = app;

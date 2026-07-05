@@ -746,6 +746,7 @@ function setupSearch() {
     const postalItem = e.target.closest('.result-postal');
     if (postalItem) {
       const postal = postalItem.dataset.postal;
+      logSearch(input.value.trim(), 'postal');
       dismissResults();
       goToPostalCode(postal);
       return;
@@ -756,6 +757,7 @@ function setupSearch() {
     const stop = stopByCode.get(item.dataset.code);
     if (!stop) return;
 
+    logSearch(input.value.trim(), 'stop');
     dismissResults();
     selectStop(stop.BusStopCode);
   });
@@ -770,6 +772,18 @@ function setupSearch() {
   document.addEventListener('click', e => {
     if (!e.target.closest('#search-bar')) results.classList.add('hidden');
   });
+}
+
+// Send the search query to the server for logging (IP is captured server-side).
+// Fire-and-forget: never block or break the search flow if logging fails.
+function logSearch(query, action) {
+  if (!query) return;
+  fetch('/api/log-search', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ query, action }),
+    keepalive: true,
+  }).catch(() => { /* ignore logging failures */ });
 }
 
 function searchStops(q) {
