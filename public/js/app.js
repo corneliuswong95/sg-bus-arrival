@@ -713,10 +713,19 @@ function setupSearch() {
 
     if (!q) { results.classList.add('hidden'); return; }
 
-    const hits = searchStops(q).slice(0, 8);
-    if (!hits.length) { results.classList.add('hidden'); return; }
+    // A 6-digit query is a Singapore postal code — offer a "find nearby" option.
+    const postalRow = /^\d{6}$/.test(q)
+      ? `<div class="result-item result-postal" data-postal="${q}">
+           <span class="result-code">📍</span>
+           <span class="result-name">Find stops near postal code ${q}</span>
+           <span class="result-road">Tap to locate</span>
+         </div>`
+      : '';
 
-    results.innerHTML = hits.map(s => `
+    const hits = searchStops(q).slice(0, 8);
+    if (!hits.length && !postalRow) { results.classList.add('hidden'); return; }
+
+    results.innerHTML = postalRow + hits.map(s => `
       <div class="result-item" data-code="${s.BusStopCode}">
         <span class="result-code">${s.BusStopCode}</span>
         <span class="result-name">${escHtml(s.Description)}</span>
@@ -726,17 +735,28 @@ function setupSearch() {
     results.classList.remove('hidden');
   });
 
+  function dismissResults() {
+    input.value = '';
+    clearBtn.classList.add('hidden');
+    results.classList.add('hidden');
+    input.blur();
+  }
+
   results.addEventListener('click', e => {
+    const postalItem = e.target.closest('.result-postal');
+    if (postalItem) {
+      const postal = postalItem.dataset.postal;
+      dismissResults();
+      goToPostalCode(postal);
+      return;
+    }
+
     const item = e.target.closest('.result-item');
     if (!item) return;
     const stop = stopByCode.get(item.dataset.code);
     if (!stop) return;
 
-    input.value = '';
-    clearBtn.classList.add('hidden');
-    results.classList.add('hidden');
-    input.blur();
-
+    dismissResults();
     selectStop(stop.BusStopCode);
   });
 
@@ -789,9 +809,38 @@ function goToUserLocation({ onError } = {}) {
         fillOpacity: 1,
       }).addTo(map).bindPopup('You are here');
       updateNearbyList();
+      document.getElementById('nearby-sheet').classList.add('expanded');
     },
     () => onError?.()
   );
+}
+
+// ── Postal code lookup ────────────────────────────────────────────────────────
+async function goToPostalCode(postal) {
+  showLoading(`Finding postal code ${postal}…`);
+  try {
+    const res = await fetch(`/api/postal?code=${encodeURIComponent(postal)}`);
+    const data = await res.json();
+    hideLoading();
+    if (!res.ok) { alert(data.error || 'Postal code not found.'); return; }
+
+    map.setView([data.lat, data.lng], 17, { animate: true });
+
+    if (userMarker) userMarker.remove();
+    userMarker = L.circleMarker([data.lat, data.lng], {
+      radius: 8,
+      fillColor: '#1565c0',
+      color: 'white',
+      weight: 2.5,
+      fillOpacity: 1,
+    }).addTo(map).bindPopup(data.address || `Postal code ${postal}`);
+
+    updateNearbyList();
+    document.getElementById('nearby-sheet').classList.add('expanded');
+  } catch {
+    hideLoading();
+    alert('Postal code lookup failed. Check your connection.');
+  }
 }
 
 // ── First-load location prompt ────────────────────────────────────────────────

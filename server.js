@@ -221,6 +221,44 @@ app.get('/api/arrivals', async (req, res) => {
   }
 });
 
+// ── Postal code → lat/lng (via OneMap public search) ────────────────────────
+const postalCache = new Map(); // postal → { at, result }
+const POSTAL_TTL = 30 * 24 * 60 * 60 * 1000; // 30 days — postal codes rarely move
+
+app.get('/api/postal', async (req, res) => {
+  const postal = String(req.query.code || '').trim();
+  if (!/^\d{6}$/.test(postal)) {
+    return res.status(400).json({ error: 'A 6-digit postal code is required.' });
+  }
+
+  const hit = postalCache.get(postal);
+  if (hit && Date.now() - hit.at < POSTAL_TTL) return res.json(hit.result);
+
+  try {
+    const url = `https://www.onemap.gov.sg/api/common/elastic/search?searchVal=${postal}&returnGeom=Y&getAddrDetails=Y&pageNum=1`;
+    const r = await fetch(url, { headers: { accept: 'application/json' } });
+    if (!r.ok) throw new Error(`OneMap ${r.status}`);
+    const data = await r.json();
+
+    const match = (data.results || []).find(x => x.POSTAL === postal) || data.results?.[0];
+    if (!match || !match.LATITUDE) {
+      return res.status(404).json({ error: 'Postal code not found.' });
+    }
+
+    const result = {
+      postal,
+      lat: +match.LATITUDE,
+      lng: +match.LONGITUDE,
+      address: match.ADDRESS || match.SEARCHVAL || '',
+    };
+    postalCache.set(postal, { at: Date.now(), result });
+    res.json(result);
+  } catch (err) {
+    console.error('Postal lookup failed:', err.message);
+    res.status(502).json({ error: 'Postal code lookup failed.' });
+  }
+});
+
 app.listen(PORT, () => {
   console.log(`SG Bus Arrival running → http://localhost:${PORT}`);
   // Pre-warm the bus stops cache so the first page load is instant
