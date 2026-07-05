@@ -182,6 +182,31 @@ function panMapToStop(stop) {
   map.flyTo(newCenter, zoom, { duration: 0.5 });
 }
 
+// Center a point in the visible map area *above* the expanded nearby sheet, so
+// the user/location dot sits in the middle of what's actually on screen. On
+// desktop the sheet is a side panel that doesn't cover the center, so we just
+// center normally.
+function centerInVisibleArea(lat, lng, zoom) {
+  const sheet = document.getElementById('nearby-sheet');
+  const isMobile = window.innerWidth < 600;
+
+  if (!isMobile || !sheet.classList.contains('expanded')) {
+    map.setView([lat, lng], zoom, { animate: true });
+    return;
+  }
+
+  const mapH = map.getSize().y;
+  // Sheet height is unaffected by its slide transform, so this is stable even
+  // while the sheet is still animating up.
+  const sheetTop = mapH - sheet.offsetHeight;
+  const visibleCenter = sheetTop / 2;
+  const targetPx = map.project([lat, lng], zoom);
+  // Move the map center below the target so the target rises to the middle of
+  // the visible (uncovered) region.
+  const newCenter = map.unproject(targetPx.add([0, mapH / 2 - visibleCenter]), zoom);
+  map.setView(newCenter, zoom, { animate: true });
+}
+
 // ── Arrivals ─────────────────────────────────────────────────────────────────
 async function loadArrivals(code) {
   const list = document.getElementById('services-list');
@@ -812,8 +837,6 @@ function goToUserLocation({ onError } = {}) {
 
   navigator.geolocation.getCurrentPosition(
     ({ coords: { latitude: lat, longitude: lng } }) => {
-      map.setView([lat, lng], 17, { animate: true });
-
       if (userMarker) userMarker.remove();
       userMarker = L.circleMarker([lat, lng], {
         radius: 8,
@@ -824,6 +847,7 @@ function goToUserLocation({ onError } = {}) {
       }).addTo(map).bindPopup('You are here');
       updateNearbyList();
       document.getElementById('nearby-sheet').classList.add('expanded');
+      centerInVisibleArea(lat, lng, 17);
     },
     () => onError?.()
   );
@@ -838,8 +862,6 @@ async function goToPostalCode(postal) {
     hideLoading();
     if (!res.ok) { alert(data.error || 'Postal code not found.'); return; }
 
-    map.setView([data.lat, data.lng], 17, { animate: true });
-
     if (userMarker) userMarker.remove();
     userMarker = L.circleMarker([data.lat, data.lng], {
       radius: 8,
@@ -851,6 +873,7 @@ async function goToPostalCode(postal) {
 
     updateNearbyList();
     document.getElementById('nearby-sheet').classList.add('expanded');
+    centerInVisibleArea(data.lat, data.lng, 17);
   } catch {
     hideLoading();
     alert('Postal code lookup failed. Check your connection.');
