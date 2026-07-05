@@ -22,6 +22,7 @@ document.addEventListener('DOMContentLoaded', async () => {
   setupNearbySheet();
   await loadAllStops();
   updateNearbyList();
+  maybePromptForLocation();
 });
 
 // ── Map ─────────────────────────────────────────────────────────────────────
@@ -767,25 +768,65 @@ function searchStops(q) {
 // ── Geolocation ──────────────────────────────────────────────────────────────
 function setupLocate() {
   document.getElementById('locate-btn').addEventListener('click', () => {
-    if (!navigator.geolocation) return;
-
-    navigator.geolocation.getCurrentPosition(
-      ({ coords: { latitude: lat, longitude: lng } }) => {
-        map.setView([lat, lng], 17, { animate: true });
-
-        if (userMarker) userMarker.remove();
-        userMarker = L.circleMarker([lat, lng], {
-          radius: 8,
-          fillColor: '#1565c0',
-          color: 'white',
-          weight: 2.5,
-          fillOpacity: 1,
-        }).addTo(map).bindPopup('You are here');
-        updateNearbyList();
-      },
-      () => alert('Unable to access your location.')
-    );
+    goToUserLocation({ onError: () => alert('Unable to access your location.') });
   });
+}
+
+// Center the map on the user's current position and drop a marker.
+function goToUserLocation({ onError } = {}) {
+  if (!navigator.geolocation) { onError?.(); return; }
+
+  navigator.geolocation.getCurrentPosition(
+    ({ coords: { latitude: lat, longitude: lng } }) => {
+      map.setView([lat, lng], 17, { animate: true });
+
+      if (userMarker) userMarker.remove();
+      userMarker = L.circleMarker([lat, lng], {
+        radius: 8,
+        fillColor: '#1565c0',
+        color: 'white',
+        weight: 2.5,
+        fillOpacity: 1,
+      }).addTo(map).bindPopup('You are here');
+      updateNearbyList();
+    },
+    () => onError?.()
+  );
+}
+
+// ── First-load location prompt ────────────────────────────────────────────────
+const LOCATION_PROMPT_KEY = 'locationPromptDismissed';
+
+async function maybePromptForLocation() {
+  if (!navigator.geolocation) return;
+
+  // If the browser already granted permission, locate silently — no popup.
+  try {
+    const status = await navigator.permissions?.query({ name: 'geolocation' });
+    if (status?.state === 'granted') { goToUserLocation(); return; }
+    if (status?.state === 'denied') return;
+  } catch { /* Permissions API unsupported — fall through to the popup */ }
+
+  // Don't nag: skip if the user already dismissed the prompt before.
+  if (localStorage.getItem(LOCATION_PROMPT_KEY)) return;
+
+  showLocationPrompt();
+}
+
+function showLocationPrompt() {
+  const prompt = document.getElementById('location-prompt');
+  prompt.classList.remove('hidden');
+
+  const close = () => {
+    prompt.classList.add('hidden');
+    try { localStorage.setItem(LOCATION_PROMPT_KEY, '1'); } catch { /* ignore */ }
+  };
+
+  document.getElementById('location-enable').onclick = () => {
+    close();
+    goToUserLocation();
+  };
+  document.getElementById('location-skip').onclick = close;
 }
 
 // ── Loading UI ───────────────────────────────────────────────────────────────

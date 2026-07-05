@@ -24,6 +24,24 @@
     </div>
   </div>
 
+  <!-- Location permission prompt -->
+  <div id="location-prompt" class="hidden">
+    <div id="location-card">
+      <div id="location-icon">
+        <svg width="30" height="30" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <path d="M12 2 C7.6 2 4 5.6 4 10 c0 6 8 12 8 12 s8-6 8-12 c0-4.4-3.6-8-8-8 Z"/>
+          <circle cx="12" cy="10" r="3"/>
+        </svg>
+      </div>
+      <h2 id="location-title">Find stops near you</h2>
+      <p id="location-desc">Enable location access for a better experience — we'll center the map on where you are and show your nearest bus stops.</p>
+      <div id="location-actions">
+        <button id="location-skip" type="button">Not now</button>
+        <button id="location-enable" type="button">Enable location</button>
+      </div>
+    </div>
+  </div>
+
   <!-- Search bar -->
   <div id="search-bar">
     <div id="search-box">
@@ -135,5 +153,8 @@
   <!-- Analytics: GoatCounter -->
   <script data-goatcounter="https://sg-bus-arrival.goatcounter.com/count"
           async src="//gc.zgo.at/count.js"></script>
+
+  <!-- Analytics: Vercel -->
+  <script defer src="/_vercel/insights/script.js"></script>
 </body>
 </html>
