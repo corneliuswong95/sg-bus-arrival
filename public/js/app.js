@@ -17,6 +17,28 @@ const NEARBY_MAX = 50;
 let currentRouteLayer = null;
 let routeServiceNo = null;
 
+// ── Favourites (persisted in localStorage, kept indefinitely) ─────────────────
+const favStops = new Set(loadFavs('favStops'));       // BusStopCode strings
+const favServices = new Set(loadFavs('favServices')); // ServiceNo strings
+
+function loadFavs(key) {
+  try { return JSON.parse(localStorage.getItem(key)) || []; } catch { return []; }
+}
+function saveFavs(key, set) {
+  try { localStorage.setItem(key, JSON.stringify([...set])); } catch { /* ignore */ }
+}
+function toggleFav(set, key, id) {
+  if (set.has(id)) set.delete(id); else set.add(id);
+  saveFavs(key, set);
+}
+// Comparator fragment: favourited ids sort first (returns <0, 0, or >0).
+function favFirst(set, a, b) {
+  return (set.has(b) ? 1 : 0) - (set.has(a) ? 1 : 0);
+}
+function starSvg() {
+  return `<svg class="star-icon" viewBox="0 0 24 24" width="18" height="18" aria-hidden="true"><path d="M12 2.6l2.75 5.57 6.15.9-4.45 4.34 1.05 6.12L12 16.9l-5.5 2.89 1.05-6.12L3.1 9.07l6.15-.9z"/></svg>`;
+}
+
 // ── Boot ────────────────────────────────────────────────────────────────────
 document.addEventListener('DOMContentLoaded', async () => {
   initMap();
@@ -326,7 +348,8 @@ function renderArrivals(data) {
   const list = document.getElementById('services-list');
   const services = (data.Services || [])
     .filter(s => s.ServiceNo)
-    .sort((a, b) => compareServiceNo(a.ServiceNo, b.ServiceNo));
+    .sort((a, b) => favFirst(favServices, a.ServiceNo, b.ServiceNo)
+                 || compareServiceNo(a.ServiceNo, b.ServiceNo));
 
   if (!services.length) {
     list.innerHTML = '<p class="state-msg">No bus services at this stop right now.</p>';
@@ -342,6 +365,7 @@ function renderArrivals(data) {
           <span class="svc-no">${escHtml(svc.ServiceNo)}</span>
           ${dest ? `<span class="svc-dest">${escHtml(dest.toUpperCase())}</span>` : ''}
           ${operatorBadge(svc.Operator)}
+          <button class="star-btn${favServices.has(svc.ServiceNo) ? ' starred' : ''}" data-fav-service="${escHtml(svc.ServiceNo)}" aria-label="Favourite bus ${escHtml(svc.ServiceNo)}">${starSvg()}</button>
         </div>
         <div class="arrival-row">${arrivalRowHtml(svc)}</div>
       </div>`;
@@ -482,6 +506,7 @@ function openSheet(stop) {
   document.getElementById('stop-code-badge').textContent = stop.BusStopCode;
   document.getElementById('stop-name').textContent = stop.Description;
   document.getElementById('stop-road').textContent = stop.RoadName;
+  document.getElementById('fav-stop-btn').classList.toggle('starred', favStops.has(stop.BusStopCode));
   document.getElementById('services-list').innerHTML = '';
   document.getElementById('updated-label').textContent = '—';
   const sheet = document.getElementById('bottom-sheet');
@@ -516,6 +541,12 @@ function setupSheet() {
   document.getElementById('refresh-btn').addEventListener('click', () => {
     if (selectedCode) loadArrivals(selectedCode);
   });
+  document.getElementById('fav-stop-btn').addEventListener('click', () => {
+    if (!selectedCode) return;
+    toggleFav(favStops, 'favStops', selectedCode);
+    document.getElementById('fav-stop-btn').classList.toggle('starred', favStops.has(selectedCode));
+    updateNearbyList();
+  });
   document.getElementById('back-btn').addEventListener('click', () => {
     closeSheet();
     document.getElementById('nearby-sheet').classList.add('expanded');
@@ -523,6 +554,13 @@ function setupSheet() {
 
   // Click a service card → show its route on the map
   document.getElementById('services-list').addEventListener('click', e => {
+    // Star button toggles the favourite and re-sorts (starred first)
+    const starBtn = e.target.closest('.star-btn');
+    if (starBtn) {
+      toggleFav(favServices, 'favServices', starBtn.dataset.favService);
+      if (lastArrivalsData) renderArrivals(lastArrivalsData);
+      return;
+    }
     const card = e.target.closest('.service-card');
     if (!card) return;
     const service = card.dataset.service;
@@ -865,7 +903,7 @@ function updateNearbyList() {
   const ranked = allStops
     .map(s => ({ s, d: haversineKm(cLat, cLng, +s.Latitude, +s.Longitude) }))
     .filter(x => Number.isFinite(x.d))
-    .sort((a, b) => a.d - b.d);
+    .sort((a, b) => favFirst(favStops, a.s.BusStopCode, b.s.BusStopCode) || (a.d - b.d));
 
   if (!ranked.length) {
     list.innerHTML = '<div class="nearby-empty">No nearby stops found.</div>';
@@ -878,7 +916,7 @@ function updateNearbyList() {
   list.innerHTML = visible.map(({ s, d }) => `
     <div class="nearby-item" data-code="${s.BusStopCode}">
       <span class="nearby-code">${s.BusStopCode}</span>
-      <span class="nearby-name">${escHtml(s.Description)}</span>
+      <span class="nearby-name">${favStops.has(s.BusStopCode) ? '<span class="fav-mark">★</span> ' : ''}${escHtml(s.Description)}</span>
       <span class="nearby-road">${escHtml(s.RoadName)}</span>
       <span class="nearby-distance">${formatDistance(d)}</span>
     </div>`).join('') + (hasMore
@@ -922,13 +960,15 @@ function setupSearch() {
          </div>`
       : '';
 
-    const hits = searchStops(q).slice(0, 8);
+    const hits = searchStops(q)
+      .sort((a, b) => favFirst(favStops, a.BusStopCode, b.BusStopCode))
+      .slice(0, 8);
     if (!hits.length && !postalRow) { results.classList.add('hidden'); return; }
 
     results.innerHTML = postalRow + hits.map(s => `
       <div class="result-item" data-code="${s.BusStopCode}">
         <span class="result-code">${s.BusStopCode}</span>
-        <span class="result-name">${escHtml(s.Description)}</span>
+        <span class="result-name">${favStops.has(s.BusStopCode) ? '<span class="fav-mark">★</span> ' : ''}${escHtml(s.Description)}</span>
         <span class="result-road">${escHtml(s.RoadName)}</span>
       </div>`).join('');
 

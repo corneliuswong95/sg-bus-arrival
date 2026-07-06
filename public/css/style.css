@@ -945,6 +945,33 @@ html, body {
   color: var(--text-muted);
 }
 
+/* ── Favourites (star) ───────────────────────────────────────────── */
+.star-btn {
+  border: none;
+  background: none;
+  padding: 4px;
+  margin: -4px 0;
+  cursor: pointer;
+  color: var(--text-muted);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  -webkit-tap-highlight-color: transparent;
+  transition: transform .1s;
+}
+.star-icon { fill: none; stroke: currentColor; stroke-width: 1.6; stroke-linejoin: round; }
+.star-btn.starred { color: #f5a623; }
+.star-btn.starred .star-icon { fill: currentColor; stroke: currentColor; }
+.star-btn:active { transform: scale(.85); }
+
+/* Push the stop's star (and the close button after it) to the right.
+   Only the star takes the auto margin so the two stay grouped together. */
+#fav-stop-btn { margin-left: auto; }
+#sheet-header #close-btn { margin-left: 0; }
+
+.fav-mark { color: #f5a623; }
+
 /* ── Route stop list ─────────────────────────────────────────────── */
 #route-panel {
   display: none;
