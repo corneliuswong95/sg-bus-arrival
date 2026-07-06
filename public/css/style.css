@@ -1114,6 +1114,19 @@ html, body {
 }
 .route-stop.current .rs-name { font-weight: 700; color: var(--blue); }
 
+/* Tapped-in-list row + its map marker */
+.route-stop.sel { background: var(--fill); border-radius: 8px; }
+.route-stop.sel .rs-name { color: var(--blue); font-weight: 700; }
+
+.route-stop-pin {
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  background: var(--blue);
+  border: 3px solid #fff;
+  box-shadow: 0 0 0 2px var(--blue), 0 1px 6px rgba(0,0,0,.45);
+}
+
 .rs-here {
   display: inline-block;
   font-size: 10px;

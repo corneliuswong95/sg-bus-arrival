@@ -16,6 +16,7 @@ const NEARBY_MAX = 50;
 
 let currentRouteLayer = null;
 let routeServiceNo = null;
+let routeStopHighlight = null; // marker for the stop tapped in the route list
 
 // ── Favourites (persisted in localStorage, kept indefinitely) ─────────────────
 const favStops = new Set(loadFavs('favStops'));       // BusStopCode strings
@@ -595,7 +596,12 @@ function setupSheet() {
     const row = e.target.closest('.route-stop');
     if (!row) return;
     const s = stopByCode.get(row.dataset.code);
-    if (s) panMapToStop(s);
+    if (!s) return;
+    // Highlight the tapped row and drop a marker so it's clear which stop it is
+    document.querySelectorAll('#route-stops .route-stop.sel').forEach(el => el.classList.remove('sel'));
+    row.classList.add('sel');
+    highlightRouteStop(s);
+    panMapToStop(s);
   });
 
   // ── Drag-to-resize bottom sheet ─────────────────────────────────────
@@ -707,6 +713,7 @@ async function showRoute(serviceNo) {
     }
 
     if (currentRouteLayer) currentRouteLayer.remove();
+    removeRouteStopHighlight();
 
     // Try road-snapped geometry first; fall back to straight stop-to-stop line.
     let lineCoords = coords;
@@ -772,10 +779,38 @@ function clearRoute() {
     currentRouteLayer.remove();
     currentRouteLayer = null;
   }
+  removeRouteStopHighlight();
   routeServiceNo = null;
   document.getElementById('clear-route-btn').classList.add('hidden');
   exitRouteMode();
   refreshActiveCard();
+}
+
+// Drop/move a prominent marker on the stop tapped in the route list, with an
+// open label so it's obvious which stop was selected.
+function highlightRouteStop(stop) {
+  const lat = +stop.Latitude, lng = +stop.Longitude;
+  if (!Number.isFinite(lat) || !Number.isFinite(lng)) return;
+  removeRouteStopHighlight();
+  routeStopHighlight = L.marker([lat, lng], {
+    icon: L.divIcon({
+      className: '',
+      html: '<div class="route-stop-pin"></div>',
+      iconSize: [18, 18],
+      iconAnchor: [9, 9],
+    }),
+    zIndexOffset: 1000,
+  })
+    .addTo(map)
+    .bindTooltip(`${stop.BusStopCode} · ${stop.Description}`, { direction: 'top', offset: [0, -9] })
+    .openTooltip();
+}
+
+function removeRouteStopHighlight() {
+  if (routeStopHighlight) {
+    routeStopHighlight.remove();
+    routeStopHighlight = null;
+  }
 }
 
 function refreshActiveCard() {
