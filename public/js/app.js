@@ -5,6 +5,10 @@ let allStops = [];
 const stopByCode = new Map();  // BusStopCode → stop object
 let selectedCode = null;
 let refreshTimer = null;
+let arrivalsTickTimer = null;
+let lastArrivalsData = null;
+const ARRIVALS_REFRESH_MS = 30_000; // LTA data updates ~every 20-30s
+const ARRIVALS_TICK_MS = 10_000;    // local re-render so "Xm" counts down
 let openedFromNearby = false;
 let nearbyShowCount = 10;
 const NEARBY_INCREMENT = 10;
@@ -215,9 +219,41 @@ async function selectStop(code, opts = {}) {
   panMapToStop(stop);
 
   await loadArrivals(code);
+  startArrivalsRefresh(code);
+}
 
+// Poll arrivals every 30s. Skip the fetch while the tab is hidden (locked
+// phone / background tab) to avoid wasting API calls; the visibilitychange
+// handler does an immediate refresh when the user returns.
+// A faster local tick re-renders the times from the last fetched data so the
+// "Xm" values count down smoothly between fetches — no extra API calls.
+function startArrivalsRefresh(code) {
+  stopArrivalsRefresh();
+  refreshTimer = setInterval(() => {
+    if (!document.hidden) loadArrivals(code);
+  }, ARRIVALS_REFRESH_MS);
+  arrivalsTickTimer = setInterval(() => {
+    if (!document.hidden) tickArrivals();
+  }, ARRIVALS_TICK_MS);
+}
+
+function stopArrivalsRefresh() {
   clearInterval(refreshTimer);
-  refreshTimer = setInterval(() => loadArrivals(code), 30_000);
+  clearInterval(arrivalsTickTimer);
+}
+
+// Recompute arrival times in place from the last fetched data (no network),
+// updating each card's chips so minutes tick down without a full re-render.
+function tickArrivals() {
+  if (!lastArrivalsData) return;
+  const byNo = new Map(
+    (lastArrivalsData.Services || []).filter(s => s.ServiceNo).map(s => [s.ServiceNo, s])
+  );
+  document.querySelectorAll('#services-list .service-card').forEach(card => {
+    const svc = byNo.get(card.dataset.service);
+    const row = card.querySelector('.arrival-row');
+    if (svc && row) row.innerHTML = arrivalRowHtml(svc);
+  });
 }
 
 // Center the map on the selected stop. On mobile, offset upward so the marker
@@ -277,6 +313,7 @@ async function loadArrivals(code) {
     const res = await fetch(`/api/arrivals?code=${encodeURIComponent(code)}`);
     if (!res.ok) throw new Error();
     const data = await res.json();
+    lastArrivalsData = data;
     renderArrivals(data);
     document.getElementById('updated-label').textContent =
       'Updated ' + new Date().toLocaleTimeString('en-SG', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
@@ -298,7 +335,6 @@ function renderArrivals(data) {
 
   list.innerHTML = services.map(svc => {
     const dest = stopByCode.get(svc.NextBus?.DestinationCode)?.Description || '';
-    const [b1, b2, b3] = [svc.NextBus, svc.NextBus2, svc.NextBus3];
     const isActive = svc.ServiceNo === routeServiceNo;
     return `
       <div class="service-card${isActive ? ' route-active' : ''}" data-service="${escHtml(svc.ServiceNo)}">
@@ -307,11 +343,14 @@ function renderArrivals(data) {
           ${dest ? `<span class="svc-dest">${escHtml(dest.toUpperCase())}</span>` : ''}
           ${operatorBadge(svc.Operator)}
         </div>
-        <div class="arrival-row">
-          ${busChip(b1)}${busChip(b2)}${busChip(b3)}
-        </div>
+        <div class="arrival-row">${arrivalRowHtml(svc)}</div>
       </div>`;
   }).join('');
+}
+
+// The three arrival chips for a service (recomputed each render so times tick).
+function arrivalRowHtml(svc) {
+  return busChip(svc.NextBus) + busChip(svc.NextBus2) + busChip(svc.NextBus3);
 }
 
 // Natural sort for bus service numbers: numeric part first (10 before 97),
@@ -459,7 +498,8 @@ function closeSheet() {
   const sheet = document.getElementById('bottom-sheet');
   sheet.classList.remove('open');
   sheet.style.transform = '';
-  clearInterval(refreshTimer);
+  stopArrivalsRefresh();
+  lastArrivalsData = null;
   selectedCode = null;
   refreshMarkerStyle(null);
   clearRoute();
@@ -467,6 +507,12 @@ function closeSheet() {
 
 function setupSheet() {
   document.getElementById('close-btn').addEventListener('click', closeSheet);
+
+  // Refresh immediately when the tab becomes visible again (data may be stale
+  // after the phone was locked or the tab was backgrounded).
+  document.addEventListener('visibilitychange', () => {
+    if (!document.hidden && selectedCode) loadArrivals(selectedCode);
+  });
   document.getElementById('refresh-btn').addEventListener('click', () => {
     if (selectedCode) loadArrivals(selectedCode);
   });
