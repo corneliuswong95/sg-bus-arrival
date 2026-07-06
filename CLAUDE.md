@@ -43,6 +43,8 @@ One file organized into labeled `// ── Section ──` blocks (State, Boot, 
 - **Marker rendering is viewport- and zoom-gated**: nothing renders below zoom 15, and only stops within the current bounds are drawn (capped at 120) for performance. Markers are added/removed on `moveend`/`zoomend`.
 - **Two bottom sheets**: `#bottom-sheet` (selected stop → arrivals, and the route stop-list view toggled by `.route-mode`) and `#nearby-sheet` (drag-up list of nearest stops). Both are drag/snap interactions implemented by hand (touch + mouse).
 - Tapping a service card calls `showRoute()` — draws a road-snapped polyline + stop dots on the map and renders the full ordered stop list (passed / current / upcoming) in the sheet.
+- **Arrivals auto-refresh** while a stop is open: a 30s server fetch (`ARRIVALS_REFRESH_MS`) plus a 10s local re-render tick (`ARRIVALS_TICK_MS`) that recomputes the "Xm" countdown from the last fetched data (`lastArrivalsData`) without hitting the API. Both pause while the tab is hidden; a `visibilitychange` handler refetches on return.
+- **Favourites** (`favStops`, `favServices` Sets) persist in `localStorage` and sort starred items first in the arrivals list, nearby list, and search results. `requestPersistentStorage()` calls `navigator.storage.persist()` on first favourite to reduce eviction.
 
 ### Theming (dark mode)
 

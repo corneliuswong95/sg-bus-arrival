@@ -30,6 +30,21 @@ function saveFavs(key, set) {
 function toggleFav(set, key, id) {
   if (set.has(id)) set.delete(id); else set.add(id);
   saveFavs(key, set);
+  requestPersistentStorage();
+}
+
+// Ask the browser to keep our storage even under disk pressure. Called the
+// first time the user favourites something (a natural moment for Firefox's
+// permission prompt). No-op if already persisted or unsupported.
+let persistRequested = false;
+async function requestPersistentStorage() {
+  if (persistRequested) return;
+  persistRequested = true;
+  try {
+    if (navigator.storage?.persist && navigator.storage.persisted) {
+      if (!(await navigator.storage.persisted())) await navigator.storage.persist();
+    }
+  } catch { /* ignore */ }
 }
 // Comparator fragment: favourited ids sort first (returns <0, 0, or >0).
 function favFirst(set, a, b) {
