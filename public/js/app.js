@@ -1,5 +1,5 @@
 // ── State ───────────────────────────────────────────────────────────────────
-let map, userMarker;
+let map, userMarker, tileLayer;
 const stopMarkers = new Map(); // BusStopCode → L.Marker
 let allStops = [];
 const stopByCode = new Map();  // BusStopCode → stop object
@@ -18,6 +18,7 @@ document.addEventListener('DOMContentLoaded', async () => {
   initMap();
   setupSearch();
   setupLocate();
+  setupTheme();
   setupSheet();
   setupNearbySheet();
   await loadAllStops();
@@ -34,7 +35,7 @@ function initMap() {
     tap: true,
   });
 
-  L.tileLayer('https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png', {
+  tileLayer = L.tileLayer(tileUrl(effectiveTheme()), {
     attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OSM</a> &copy; <a href="https://carto.com/">CARTO</a>',
     maxZoom: 20,
     subdomains: 'abcd',
@@ -45,6 +46,46 @@ function initMap() {
   map.on('moveend zoomend', () => {
     updateMarkersInView();
     updateNearbyList();
+  });
+}
+
+// ── Theme (dark mode) ─────────────────────────────────────────────────────────
+// Resolves the active theme: an explicit user choice (data-theme) wins,
+// otherwise fall back to the OS preference.
+function effectiveTheme() {
+  const forced = document.documentElement.getAttribute('data-theme');
+  if (forced === 'dark' || forced === 'light') return forced;
+  return window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
+}
+
+function tileUrl(theme) {
+  const style = theme === 'dark' ? 'dark_all' : 'voyager';
+  return `https://{s}.basemaps.cartocdn.com/rastertiles/${style}/{z}/{x}/{y}{r}.png`;
+}
+
+// Swap the map tiles and browser chrome color to match the active theme.
+function applyThemeSideEffects() {
+  const theme = effectiveTheme();
+  if (tileLayer) tileLayer.setUrl(tileUrl(theme));
+  const meta = document.querySelector('meta[name="theme-color"]');
+  if (meta) meta.setAttribute('content', theme === 'dark' ? '#121212' : '#d32f2f');
+}
+
+function setupTheme() {
+  applyThemeSideEffects();
+
+  document.getElementById('theme-toggle').addEventListener('click', () => {
+    const next = effectiveTheme() === 'dark' ? 'light' : 'dark';
+    document.documentElement.setAttribute('data-theme', next);
+    try { localStorage.setItem('theme', next); } catch { /* ignore */ }
+    applyThemeSideEffects();
+  });
+
+  // Follow OS changes only while the user hasn't made an explicit choice.
+  window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change', () => {
+    let stored = null;
+    try { stored = localStorage.getItem('theme'); } catch { /* ignore */ }
+    if (!stored) applyThemeSideEffects();
   });
 }
 
@@ -228,7 +269,9 @@ async function loadArrivals(code) {
 
 function renderArrivals(data) {
   const list = document.getElementById('services-list');
-  const services = (data.Services || []).filter(s => s.ServiceNo);
+  const services = (data.Services || [])
+    .filter(s => s.ServiceNo)
+    .sort((a, b) => compareServiceNo(a.ServiceNo, b.ServiceNo));
 
   if (!services.length) {
     list.innerHTML = '<p class="state-msg">No bus services at this stop right now.</p>';
@@ -251,6 +294,18 @@ function renderArrivals(data) {
         </div>
       </div>`;
   }).join('');
+}
+
+// Natural sort for bus service numbers: numeric part first (10 before 97),
+// then any letter suffix (10 before 10e), then fully alphabetic ones (NR7).
+function compareServiceNo(a, b) {
+  const parse = s => {
+    const m = String(s).match(/^(\d*)(.*)$/);
+    return { num: m[1] === '' ? Infinity : parseInt(m[1], 10), suffix: m[2] };
+  };
+  const pa = parse(a), pb = parse(b);
+  if (pa.num !== pb.num) return pa.num - pb.num;
+  return pa.suffix.localeCompare(pb.suffix);
 }
 
 function busChip(bus) {
