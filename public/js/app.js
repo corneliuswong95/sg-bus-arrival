@@ -35,13 +35,9 @@ function initMap() {
     tap: true,
   });
 
-  tileLayer = L.tileLayer(tileUrl(effectiveTheme()), {
-    attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OSM</a> &copy; <a href="https://carto.com/">CARTO</a>',
-    maxZoom: 20,
-    subdomains: 'abcd',
-  }).addTo(map);
+  setTiles(effectiveTheme());
 
-  L.control.zoom({ position: 'bottomright' }).addTo(map);
+  L.control.zoom({ position: 'topright' }).addTo(map);
 
   map.on('moveend zoomend', () => {
     updateMarkersInView();
@@ -58,15 +54,37 @@ function effectiveTheme() {
   return window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
 }
 
-function tileUrl(theme) {
-  const style = theme === 'dark' ? 'dark_all' : 'voyager';
-  return `https://{s}.basemaps.cartocdn.com/rastertiles/${style}/{z}/{x}/{y}{r}.png`;
+// Basemap per theme. Light = CartoDB Voyager; dark = Stadia Alidade Smooth Dark.
+const TILE_CONFIG = {
+  light: {
+    url: 'https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png',
+    options: {
+      attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OSM</a> &copy; <a href="https://carto.com/">CARTO</a>',
+      maxZoom: 20,
+      subdomains: 'abcd',
+    },
+  },
+  dark: {
+    url: 'https://tiles.stadiamaps.com/tiles/alidade_smooth_dark/{z}/{x}/{y}{r}.png',
+    options: {
+      attribution: '&copy; <a href="https://stadiamaps.com/">Stadia Maps</a> &copy; <a href="https://openmaptiles.org/">OpenMapTiles</a> &copy; <a href="https://www.openstreetmap.org/copyright">OSM</a>',
+      maxZoom: 20,
+    },
+  },
+};
+
+// (Re)build the tile layer for the given theme so both the URL and its
+// attribution update together.
+function setTiles(theme) {
+  const cfg = TILE_CONFIG[theme] || TILE_CONFIG.light;
+  if (tileLayer) tileLayer.remove();
+  tileLayer = L.tileLayer(cfg.url, cfg.options).addTo(map);
 }
 
 // Swap the map tiles and browser chrome color to match the active theme.
 function applyThemeSideEffects() {
   const theme = effectiveTheme();
-  if (tileLayer) tileLayer.setUrl(tileUrl(theme));
+  setTiles(theme);
   const meta = document.querySelector('meta[name="theme-color"]');
   if (meta) meta.setAttribute('content', theme === 'dark' ? '#121212' : '#d32f2f');
 }
@@ -419,6 +437,7 @@ function setSheetOffset(px) {
 }
 
 function openSheet(stop) {
+  exitRouteMode();
   document.getElementById('nearby-sheet').classList.remove('expanded');
   document.getElementById('back-btn').classList.toggle('hidden', !openedFromNearby);
   document.getElementById('stop-code-badge').textContent = stop.BusStopCode;
@@ -470,6 +489,15 @@ function setupSheet() {
   });
 
   document.getElementById('clear-route-btn').addEventListener('click', clearRoute);
+
+  // Route panel: back to arrivals, and tap a stop to pan the map to it
+  document.getElementById('route-back-btn').addEventListener('click', exitRouteMode);
+  document.getElementById('route-stops').addEventListener('click', e => {
+    const row = e.target.closest('.route-stop');
+    if (!row) return;
+    const s = stopByCode.get(row.dataset.code);
+    if (s) panMapToStop(s);
+  });
 
   // ── Drag-to-resize bottom sheet ─────────────────────────────────────
   const sheet  = document.getElementById('bottom-sheet');
@@ -622,6 +650,9 @@ async function showRoute(serviceNo) {
     // Re-render arrivals to highlight the active card
     refreshActiveCard();
 
+    // Show the ordered stop list for this service in the sheet
+    renderRouteStops(chosen, serviceNo);
+
     // Fit map to route bounds with padding for the bottom sheet
     const bounds = line.getBounds();
     const isMobile = window.innerWidth < 600;
@@ -644,6 +675,7 @@ function clearRoute() {
   }
   routeServiceNo = null;
   document.getElementById('clear-route-btn').classList.add('hidden');
+  exitRouteMode();
   refreshActiveCard();
 }
 
@@ -651,6 +683,48 @@ function refreshActiveCard() {
   document.querySelectorAll('#services-list .service-card').forEach(card => {
     card.classList.toggle('route-active', card.dataset.service === routeServiceNo);
   });
+}
+
+// Populate the route panel with the full ordered stop list for a service,
+// marking stops relative to the currently selected stop.
+function renderRouteStops(chosen, serviceNo) {
+  const destCode = chosen[chosen.length - 1]?.BusStopCode;
+  const dest = stopByCode.get(destCode)?.Description || '';
+  document.getElementById('route-panel-title').textContent = `Bus ${serviceNo}`;
+  document.getElementById('route-panel-sub').textContent =
+    `${chosen.length} stops` + (dest ? ` · towards ${dest}` : '');
+
+  const curIdx = chosen.findIndex(r => r.BusStopCode === selectedCode);
+
+  document.getElementById('route-stops').innerHTML = chosen.map((r, i) => {
+    const s = stopByCode.get(r.BusStopCode);
+    const name = s?.Description || r.BusStopCode;
+    const road = s?.RoadName || '';
+    let cls = 'upcoming';
+    if (curIdx >= 0 && i < curIdx) cls = 'passed';
+    else if (i === curIdx) cls = 'current';
+    const hereBadge = i === curIdx ? '<span class="rs-here">You are here</span>' : '';
+    return `
+      <div class="route-stop ${cls}" data-code="${escHtml(r.BusStopCode)}">
+        <span class="rs-track"><span class="rs-dot"></span></span>
+        <span class="rs-info">
+          <span class="rs-name">${escHtml(name)}${hereBadge}</span>
+          <span class="rs-road">${escHtml(road)}</span>
+        </span>
+        <span class="rs-code">${escHtml(r.BusStopCode)}</span>
+      </div>`;
+  }).join('');
+
+  document.getElementById('bottom-sheet').classList.add('route-mode');
+  // Scroll the current stop into view within the list
+  requestAnimationFrame(() => {
+    document.querySelector('#route-stops .route-stop.current')
+      ?.scrollIntoView({ block: 'center' });
+  });
+}
+
+function exitRouteMode() {
+  document.getElementById('bottom-sheet').classList.remove('route-mode');
 }
 
 // ── Nearby sheet (drag-up) ──────────────────────────────────────────────────

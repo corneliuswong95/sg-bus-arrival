@@ -21,8 +21,8 @@
   /* Surfaces & fills */
   --app-bg: #f4f4f4;
   --surface: #ffffff;
-  --surface-alt: var(--surface-alt);
-  --fill: var(--fill);
+  --surface-alt: #fafafa;
+  --fill: #f0f0f0;
   --fill-active: #e4e4e4;
   --overlay-bg: rgba(255,255,255,.92);
   --handle: #d0d0d0;
@@ -267,7 +267,9 @@ html, body {
   top: max(12px, env(safe-area-inset-top));
   left: 12px;
   right: 12px;
-  z-index: 400;
+  /* Above the Leaflet controls (z-index 800) so the results dropdown covers
+     the top-right zoom/locate/theme buttons while searching. */
+  z-index: 900;
   max-width: 480px;
   left: 50%;
   transform: translateX(-50%);
@@ -392,8 +394,9 @@ html, body {
 /* ── Locate button ───────────────────────────────────────────────── */
 #locate-btn {
   position: fixed;
-  right: 10px;
-  bottom: 110px;
+  right: 12px;
+  /* Top-right stack: search bar, theme toggle (+58), zoom (+106, 80px tall), locate */
+  top: calc(max(12px, env(safe-area-inset-top)) + 194px);
   z-index: 300;
   width: 40px;
   height: 40px;
@@ -414,9 +417,10 @@ html, body {
 /* ── Theme toggle ────────────────────────────────────────────────── */
 #theme-toggle {
   position: fixed;
-  left: 10px;
-  bottom: 110px;
-  z-index: 300;
+  right: 12px;
+  /* Sit just below the search bar (top offset + 50px height + 8px gap) */
+  top: calc(max(12px, env(safe-area-inset-top)) + 58px);
+  z-index: 350;
   width: 40px;
   height: 40px;
   border-radius: 8px;
@@ -941,6 +945,162 @@ html, body {
   color: var(--text-muted);
 }
 
+/* ── Route stop list ─────────────────────────────────────────────── */
+#route-panel {
+  display: none;
+  flex: 1;
+  flex-direction: column;
+  min-height: 0;
+}
+
+/* Swap arrivals UI for the route view when a bus number is tapped */
+#bottom-sheet.route-mode #meta-bar,
+#bottom-sheet.route-mode #legend-bar,
+#bottom-sheet.route-mode #services-list { display: none; }
+#bottom-sheet.route-mode #route-panel { display: flex; }
+
+#route-panel-header {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 16px 12px;
+  background: var(--surface);
+  border-top: 1px solid var(--border);
+  border-bottom: 1px solid var(--border);
+  flex-shrink: 0;
+}
+
+#route-back-btn {
+  border: none;
+  background: var(--fill);
+  width: 30px;
+  height: 30px;
+  border-radius: 50%;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--text-muted);
+  flex-shrink: 0;
+}
+#route-back-btn:active { background: var(--fill-active); }
+
+#route-panel-title {
+  font-size: 16px;
+  font-weight: 700;
+  color: var(--red);
+}
+
+#route-panel-sub {
+  font-size: 12.5px;
+  color: var(--text-muted);
+  margin-top: 1px;
+}
+
+#route-stops {
+  overflow-y: auto;
+  flex: 1;
+  padding: 8px 16px calc(35vh + env(safe-area-inset-bottom, 0px));
+  -webkit-overflow-scrolling: touch;
+}
+
+.route-stop {
+  display: grid;
+  grid-template-columns: 22px 1fr auto;
+  align-items: center;
+  gap: 10px;
+  cursor: pointer;
+  min-height: 40px;
+}
+
+/* Timeline rail + dot */
+.rs-track {
+  position: relative;
+  align-self: stretch;
+  display: flex;
+  justify-content: center;
+}
+.rs-track::before {
+  content: "";
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 2px;
+  background: var(--border);
+}
+.route-stop:first-child .rs-track::before { top: 50%; }
+.route-stop:last-child  .rs-track::before { bottom: 50%; }
+
+.rs-dot {
+  position: relative;
+  z-index: 1;
+  align-self: center;
+  width: 11px;
+  height: 11px;
+  border-radius: 50%;
+  background: var(--surface);
+  border: 2px solid var(--red);
+}
+
+.rs-name {
+  display: block;
+  font-size: 14px;
+  font-weight: 500;
+  color: var(--text);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.rs-road {
+  display: block;
+  font-size: 12px;
+  color: var(--text-muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.rs-code {
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--red);
+  background: var(--red-light);
+  padding: 3px 6px;
+  border-radius: 6px;
+  font-feature-settings: "tnum";
+}
+
+/* Passed stops — dimmed */
+.route-stop.passed .rs-name,
+.route-stop.passed .rs-road { opacity: .45; }
+.route-stop.passed .rs-dot { background: var(--border); border-color: var(--border); }
+.route-stop.passed .rs-code { opacity: .5; }
+
+/* Current stop — emphasised */
+.route-stop.current .rs-dot {
+  width: 15px;
+  height: 15px;
+  background: var(--blue);
+  border-color: var(--surface);
+  box-shadow: 0 0 0 2px var(--blue);
+}
+.route-stop.current .rs-name { font-weight: 700; color: var(--blue); }
+
+.rs-here {
+  display: inline-block;
+  font-size: 10px;
+  font-weight: 700;
+  color: #fff;
+  background: var(--blue);
+  padding: 1px 6px;
+  border-radius: 10px;
+  margin-left: 6px;
+  vertical-align: middle;
+  text-transform: uppercase;
+  letter-spacing: .3px;
+}
+
 /* ── Empty/error states ──────────────────────────────────────────── */
 .state-msg {
   text-align: center;
@@ -960,9 +1120,12 @@ html, body {
   overflow: hidden;
 }
 
-/* Lift zoom controls above the locate button so the Nearby Stops sheet doesn't cover them */
-.leaflet-bottom.leaflet-right .leaflet-control-zoom {
-  margin-bottom: 165px !important;
+/* Place zoom controls in the top-right stack, below the theme toggle */
+.leaflet-top.leaflet-right .leaflet-control-zoom {
+  margin-top: calc(max(12px, env(safe-area-inset-top)) + 106px) !important;
+  margin-right: 12px !important;
+  margin-bottom: 0 !important;
+  margin-left: 0 !important;
 }
 
 .leaflet-control-zoom a {
@@ -1031,12 +1194,5 @@ html, body {
 
   #nearby-sheet.expanded { transform: translateY(0); }
 
-  #locate-btn { bottom: 16px; }
   #zoom-hint  { bottom: 70px; }
-  /* Clear the nearby-stops panel that sits at the bottom-left on desktop */
-  #theme-toggle { left: 16px; bottom: 110px; }
-
-  .leaflet-bottom.leaflet-right .leaflet-control-zoom {
-    margin-bottom: 75px !important;
-  }
 }

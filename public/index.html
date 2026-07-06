@@ -163,6 +163,22 @@
     </div>
 
     <div id="services-list"></div>
+
+    <!-- Route stop list (shown when a bus number is tapped) -->
+    <div id="route-panel">
+      <div id="route-panel-header">
+        <button id="route-back-btn" aria-label="Back to arrivals">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
+            <polyline points="15 18 9 12 15 6"/>
+          </svg>
+        </button>
+        <div id="route-panel-info">
+          <div id="route-panel-title"></div>
+          <div id="route-panel-sub"></div>
+        </div>
+      </div>
+      <div id="route-stops"></div>
+    </div>
   </div>
 
   <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" crossorigin=""></script>
