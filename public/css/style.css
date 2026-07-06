@@ -260,6 +260,17 @@ html, body {
   z-index: 0;
 }
 
+/* Boost contrast/saturation of the dark basemap tiles so roads and water
+   read better. Scoped to the tile pane so markers/routes/popups are untouched. */
+:root[data-theme="dark"] .leaflet-tile-pane {
+  filter: brightness(1.08) contrast(1.4) saturate(1.25);
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) .leaflet-tile-pane {
+    filter: brightness(1.08) contrast(1.4) saturate(1.25);
+  }
+}
+
 /* ── Search bar ──────────────────────────────────────────────────── */
 #search-bar {
   position: fixed;
