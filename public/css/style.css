@@ -184,9 +184,9 @@ html, body {
 }
 
 #location-icon {
-  width: 60px;
-  height: 60px;
-  margin: 0 auto 16px;
+  width: 52px;
+  height: 52px;
+  margin: 0 auto 14px;
   border-radius: 50%;
   background: var(--red-light);
   color: var(--red);
@@ -195,11 +195,51 @@ html, body {
   justify-content: center;
 }
 
+#location-welcome {
+  margin-bottom: 4px;
+}
+
+#location-welcome .welcome-hi {
+  display: block;
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--text-muted);
+  letter-spacing: .02em;
+}
+
+#location-welcome strong {
+  display: block;
+  font-size: 44px;
+  font-weight: 800;
+  color: var(--red);
+  letter-spacing: -0.03em;
+  line-height: 1.05;
+  margin: 4px 0 10px;
+}
+
+#location-welcome .welcome-sub {
+  display: block;
+  max-width: 250px;
+  margin: 0 auto;
+  font-size: 14.5px;
+  font-weight: 400;
+  color: var(--text-muted);
+  line-height: 1.5;
+}
+
+.location-divider {
+  width: 44px;
+  height: 3px;
+  border-radius: 3px;
+  background: var(--fill);
+  margin: 22px auto;
+}
+
 #location-title {
-  font-size: 19px;
+  font-size: 18px;
   font-weight: 700;
   color: var(--text);
-  margin-bottom: 8px;
+  margin-bottom: 6px;
 }
 
 #location-desc {

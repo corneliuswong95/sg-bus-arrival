@@ -188,8 +188,104 @@ async function fetchRoadPath(service, direction) {
     if (allLine.length) seg.shift(); // avoid duplicate join point
     allLine.push(...seg);
   }
-  roadPathCache.set(key, { at: Date.now(), coords: allLine });
-  return allLine;
+  // Loop services (first stop == last stop, e.g. route 90/62) are there-and-back
+  // *by design*: they travel out along a road and return along it, serving stops
+  // on both passes. That legitimate geometry is indistinguishable from a spur, so
+  // de-spurring corrupts it — skip it and serve the faithful OSRM line instead.
+  const first = routeRows[0].BusStopCode;
+  const last = routeRows[routeRows.length - 1].BusStopCode;
+  const isLoop = first === last
+    || haversineMetres(coords[0], coords[coords.length - 1]) < 400;
+
+  const cleaned = isLoop ? allLine : deSpur(allLine, coords);
+  roadPathCache.set(key, { at: Date.now(), coords: cleaned });
+  return cleaned;
+}
+
+// Great-circle distance between two [lng,lat] points, in metres.
+function haversineMetres(a, b) {
+  const R = 6371000, rad = x => x * Math.PI / 180;
+  const dLat = rad(b[1] - a[1]), dLng = rad(b[0] - a[0]);
+  const s = Math.sin(dLat / 2) ** 2
+    + Math.cos(rad(a[1])) * Math.cos(rad(b[1])) * Math.sin(dLng / 2) ** 2;
+  return 2 * R * Math.asin(Math.sqrt(s));
+}
+
+// Fraction of an excursion's outbound leg that overlaps its inbound leg.
+// A retracing spur (out and back along the *same* road) scores ~1; a genuine
+// loop that returns via *different* roads scores low. We split the segment
+// line[a..b] at its farthest point (the tip) and, for each outbound point,
+// check whether some inbound point lies within OVER metres.
+function overlapFraction(line, a, b, OVER = 28) {
+  let tip = a, maxD = 0;
+  for (let t = a; t <= b; t++) {
+    const d = haversineMetres(line[a], line[t]);
+    if (d > maxD) { maxD = d; tip = t; }
+  }
+  if (tip === a || tip === b) return 0;
+  let hit = 0, total = 0;
+  for (let p = a; p <= tip; p++) {
+    total++;
+    let min = Infinity;
+    for (let q = tip; q <= b; q++) {
+      const d = haversineMetres(line[p], line[q]);
+      if (d < min) min = d;
+      if (min < OVER) break;
+    }
+    if (min < OVER) hit++;
+  }
+  return total ? hit / total : 0;
+}
+
+// How many of the route's stops lie within THRESH metres of the segment
+// line[a..b]. Used to tell an artifact spur (a detour to reach *one* set-back
+// stop) from a legitimate there-and-back (which serves *several* stops).
+function stopsServedBy(line, a, b, stopPts, THRESH = 55) {
+  let n = 0;
+  for (const sp of stopPts) {
+    let min = Infinity;
+    for (let t = a; t <= b; t++) {
+      const d = haversineMetres(sp, line[t]);
+      if (d < min) min = d;
+      if (min < THRESH) break;
+    }
+    if (min < THRESH) n++;
+  }
+  return n;
+}
+
+// OSRM's `route` service forces the line to pass exactly through every bus-stop
+// coordinate. When a stop snaps to a driveway, service road, or the opposite
+// carriageway of a divided road, this produces an out-and-back "spur" — the
+// path darts off and doubles back on itself along the same road (drawn as two
+// parallel lines with a hairpin at the tip).
+//
+// A spur is spliced out only when it is BOTH a genuine retrace (outbound and
+// inbound legs overlap — see overlapFraction) AND serves at most one bus stop.
+// The stop test is what protects legitimate there-and-back travel, which serves
+// several stops; an artifact only exists to reach a single mis-snapped stop.
+// (Loop services are excluded entirely upstream — see fetchRoadPath.)
+function deSpur(line, stopPts = [], { NEAR = 35, MIN = 40, MAX = 1500, LOOK = 1500, OVERLAP = 0.8, MAX_STOPS = 1 } = {}) {
+  if (!Array.isArray(line) || line.length < 3) return line;
+  const out = [line[0]];
+  let i = 0;
+  while (i < line.length - 1) {
+    let best = -1, run = 0;
+    for (let j = i + 1; j < Math.min(i + LOOK, line.length); j++) {
+      run += haversineMetres(line[j - 1], line[j]);
+      if (run > MAX) break;
+      if (run > MIN && haversineMetres(line[i], line[j]) < NEAR) best = j;
+    }
+    if (best !== -1
+      && overlapFraction(line, i, best) >= OVERLAP
+      && stopsServedBy(line, i, best, stopPts) <= MAX_STOPS) {
+      i = best; // artifact retrace: skip the excursion; line[i] (base) already in `out`
+    } else {
+      out.push(line[i + 1]);
+      i++;
+    }
+  }
+  return out;
 }
 
 app.get('/api/road-path', async (req, res) => {
