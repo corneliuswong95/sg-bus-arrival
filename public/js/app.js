@@ -963,15 +963,29 @@ function updateNearbyList() {
   const visible = ranked.slice(0, nearbyShowCount);
   const hasMore = nearbyShowCount < Math.min(ranked.length, NEARBY_MAX);
 
-  list.innerHTML = visible.map(({ s, d }) => `
+  const favItems  = visible.filter(({ s }) => favStops.has(s.BusStopCode));
+  const restItems = visible.filter(({ s }) => !favStops.has(s.BusStopCode));
+
+  const itemHtml = ({ s, d }) => `
     <div class="nearby-item" data-code="${s.BusStopCode}">
       <span class="nearby-code">${s.BusStopCode}</span>
       <span class="nearby-name">${favStops.has(s.BusStopCode) ? '<span class="fav-mark">★</span> ' : ''}${escHtml(s.Description)}</span>
       <span class="nearby-road">${escHtml(s.RoadName)}</span>
       <span class="nearby-distance">${formatDistance(d)}</span>
-    </div>`).join('') + (hasMore
-      ? `<button id="load-more-btn" type="button">Load more</button>`
-      : '');
+    </div>`;
+
+  let html = '';
+  if (favItems.length) {
+    html += `<div class="nearby-section-label">Favourites</div>`;
+    html += favItems.map(itemHtml).join('');
+  }
+  if (restItems.length) {
+    if (favItems.length) html += `<div class="nearby-section-label">Nearby stops</div>`;
+    html += restItems.map(itemHtml).join('');
+  }
+  if (hasMore) html += `<button id="load-more-btn" type="button">Load more</button>`;
+
+  list.innerHTML = html;
 }
 
 function haversineKm(lat1, lng1, lat2, lng2) {
