@@ -188,18 +188,44 @@ async function fetchRoadPath(service, direction) {
     if (allLine.length) seg.shift(); // avoid duplicate join point
     allLine.push(...seg);
   }
-  // Loop services (first stop == last stop, e.g. route 90/62) are there-and-back
-  // *by design*: they travel out along a road and return along it, serving stops
-  // on both passes. That legitimate geometry is indistinguishable from a spur, so
-  // de-spurring corrupts it — skip it and serve the faithful OSRM line instead.
+  // Loop / there-and-back services (first stop == last stop, e.g. 90/62/23)
+  // legitimately travel out along a road and back, serving stops on both passes —
+  // geometry that looks like a spur. So for loops we only strip *stop-free* short
+  // retraces (clear artifacts) and never touch stop-serving legs; point-to-point
+  // routes may also drop retraces that serve a single mis-snapped stop.
   const first = routeRows[0].BusStopCode;
   const last = routeRows[routeRows.length - 1].BusStopCode;
   const isLoop = first === last
     || haversineMetres(coords[0], coords[coords.length - 1]) < 400;
+  const opts = isLoop ? { MAX_STOPS: 0, MAX: 800 } : { MAX_STOPS: 1, MAX: 1500 };
 
-  const cleaned = isLoop ? allLine : deSpur(allLine, coords);
+  const candidate = deSpur(allLine, coords, opts);
+  // Safety net: de-spurring should only ever make the line smoother. If it added
+  // hairpins, it spliced out something it shouldn't have (e.g. a stop-sparse leg
+  // of a real there-and-back), so discard it and keep the faithful OSRM line.
+  const cleaned = hairpinCount(candidate) > hairpinCount(allLine) ? allLine : candidate;
   roadPathCache.set(key, { at: Date.now(), coords: cleaned });
   return cleaned;
+}
+
+// Count sharp (~U-turn) direction reversals in a polyline, using bearings
+// measured over ~15 m either side of each vertex so short zig-zags don't
+// register. Used only as the de-spur safety net above.
+function hairpinCount(line) {
+  let count = 0;
+  for (let i = 1; i < line.length - 1; i++) {
+    let j = i, back = 0;
+    while (j > 0 && back < 15) { back += haversineMetres(line[j - 1], line[j]); j--; }
+    let k = i, fwd = 0;
+    while (k < line.length - 1 && fwd < 15) { fwd += haversineMetres(line[k], line[k + 1]); k++; }
+    const A = line[j], B = line[i], C = line[k];
+    const v1 = [B[0] - A[0], B[1] - A[1]], v2 = [C[0] - B[0], C[1] - B[1]];
+    const m1 = Math.hypot(v1[0], v1[1]), m2 = Math.hypot(v2[0], v2[1]);
+    if (m1 < 1e-9 || m2 < 1e-9) continue;
+    const cos = (v1[0] * v2[0] + v1[1] * v2[1]) / (m1 * m2);
+    if (Math.acos(Math.max(-1, Math.min(1, cos))) * 180 / Math.PI > 140) count++;
+  }
+  return count;
 }
 
 // Great-circle distance between two [lng,lat] points, in metres.
@@ -261,10 +287,11 @@ function stopsServedBy(line, a, b, stopPts, THRESH = 55) {
 // parallel lines with a hairpin at the tip).
 //
 // A spur is spliced out only when it is BOTH a genuine retrace (outbound and
-// inbound legs overlap — see overlapFraction) AND serves at most one bus stop.
-// The stop test is what protects legitimate there-and-back travel, which serves
-// several stops; an artifact only exists to reach a single mis-snapped stop.
-// (Loop services are excluded entirely upstream — see fetchRoadPath.)
+// inbound legs overlap — see overlapFraction) AND serves at most MAX_STOPS bus
+// stops. The stop test protects legitimate there-and-back travel, which serves
+// several stops; an artifact only exists to reach one (or zero) mis-snapped
+// stops. Callers pass MAX_STOPS=0 for loop routes (stricter) and 1 for
+// point-to-point; fetchRoadPath also guards the result with hairpinCount.
 function deSpur(line, stopPts = [], { NEAR = 35, MIN = 40, MAX = 1500, LOOK = 1500, OVERLAP = 0.8, MAX_STOPS = 1 } = {}) {
   if (!Array.isArray(line) || line.length < 3) return line;
   const out = [line[0]];
