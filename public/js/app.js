@@ -70,7 +70,6 @@ document.addEventListener('DOMContentLoaded', async () => {
   setupSheet();
   setupNearbySheet();
   setupFilters();
-  setupKopi();
   await loadAllStops();
   updateNearbyList();
   maybePromptForLocation();
@@ -1600,64 +1599,6 @@ function toast(msg, ms = 3400) {
     el.classList.remove('show');
     setTimeout(() => el.classList.add('hidden'), 260);
   }, ms);
-}
-
-// ── Buy Buski a kopi (support) ───────────────────────────────────────────────
-// To enable: fill in KOPI below, then export your PayNow QR from your banking
-// app (e.g. DBS/PayLah, OCBC, UOB → "PayNow QR" / "Save QR") and save it to
-// public/img/paynow-qr.png. A bank-made image is guaranteed valid and shows your
-// verified name to donors. The id below is shown as a tap-to-copy fallback.
-const KOPI = {
-  name:      'Cornelius',          // whose PayNow — shown as "Paying to …"
-  payNowId:  '+65 8830 5396',      // your PayNow mobile no. or UEN (display; copied digits-only)
-  qrImage:   '/img/paynow-qr.png', // exported PayNow QR image
-  coffeeUrl: '',                   // optional Buy Me a Coffee / Ko-fi URL ('' hides the link)
-};
-
-function setupKopi() {
-  const modal = document.getElementById('kopi-modal');
-  const btn = document.getElementById('kopi-btn');
-  if (!modal || !btn) return;
-
-  // Fill the static bits from config.
-  document.getElementById('kopi-mascot').innerHTML = mascotSvg(74);
-  document.getElementById('kopi-id-val').textContent = KOPI.payNowId;
-  document.getElementById('kopi-name').textContent = KOPI.name;
-
-  const qr = document.getElementById('kopi-qr');
-  qr.src = KOPI.qrImage;
-  // No QR image yet → show the "add it here" hint instead of a broken image.
-  qr.onerror = () => {
-    qr.classList.add('hidden');
-    document.getElementById('kopi-qr-fallback').classList.remove('hidden');
-  };
-
-  if (KOPI.coffeeUrl) {
-    const coffee = document.getElementById('kopi-coffee');
-    coffee.href = KOPI.coffeeUrl;
-    coffee.classList.remove('hidden');
-  }
-
-  const open = () => modal.classList.remove('hidden');
-  const close = () => modal.classList.add('hidden');
-  btn.addEventListener('click', open);
-  document.getElementById('kopi-close').addEventListener('click', close);
-  // Tap the dimmed backdrop (outside the card) to dismiss.
-  modal.addEventListener('click', e => { if (e.target === modal) close(); });
-  document.addEventListener('keydown', e => {
-    if (e.key === 'Escape' && !modal.classList.contains('hidden')) close();
-  });
-
-  // Tap the PayNow id to copy it — handy on desktop where you can't scan.
-  document.getElementById('kopi-id').addEventListener('click', async () => {
-    const clean = KOPI.payNowId.replace(/\s+/g, '');  // digits paste cleanly into bank apps
-    try {
-      await navigator.clipboard.writeText(clean);
-      toast('PayNow copied — thank you! ☕');
-    } catch {
-      toast(`PayNow: ${clean}`);
-    }
-  });
 }
 
 // ── Buski mascot ─────────────────────────────────────────────────────────────
