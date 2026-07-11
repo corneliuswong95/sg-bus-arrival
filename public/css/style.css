@@ -504,6 +504,37 @@ html, body {
 .map-btn.glass:active { background: var(--fill); }
 
 #locate-btn { color: var(--blue); }
+/* Filled "active" state once the map is centred on the user. */
+#locate-btn.located { background: var(--blue); color: #fff; }
+#locate-btn.located:active { background: var(--blue); }
+
+/* Spin the crosshair while acquiring a fix. */
+.map-btn.locating { cursor: progress; }
+@media (prefers-reduced-motion: no-preference) {
+  .map-btn.locating svg { animation: locate-spin .9s linear infinite; transform-origin: 50% 50%; }
+}
+@keyframes locate-spin { to { transform: rotate(360deg); } }
+
+/* Pulsing "you are here" location marker. */
+.user-loc { position: relative; background: none; border: 0; }
+.user-loc-dot {
+  position: absolute; inset: 0; margin: auto;
+  width: 16px; height: 16px; border-radius: 50%;
+  background: var(--blue); border: 2.5px solid #fff;
+  box-shadow: 0 1px 4px rgba(0,0,0,.4);
+}
+.user-loc-pulse {
+  position: absolute; inset: 0; margin: auto;
+  width: 16px; height: 16px; border-radius: 50%;
+  background: var(--blue);
+}
+@media (prefers-reduced-motion: no-preference) {
+  .user-loc-pulse { animation: user-loc-pulse 2s ease-out infinite; }
+}
+@keyframes user-loc-pulse {
+  0%   { transform: scale(1);   opacity: .45; }
+  100% { transform: scale(3.2); opacity: 0; }
+}
 
 .zoom-group {
   display: flex;

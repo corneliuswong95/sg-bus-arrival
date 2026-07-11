@@ -90,11 +90,40 @@ function initMap() {
   });
 
   setTiles(effectiveTheme());
+  setupDoubleTapZoom();
 
   map.on('moveend zoomend', () => {
     updateMarkersInView();
     updateNearbyList();
   });
+}
+
+// Double-tap to zoom on touch. Leaflet's built-in doubleClickZoom keys off
+// `dblclick`, which mobile browsers fire unreliably — so detect the double-tap
+// by hand and zoom toward the tapped point. preventDefault on the second tap
+// suppresses the synthetic mouse dblclick, so we never zoom twice.
+function setupDoubleTapZoom() {
+  const el = map.getContainer();
+  let lastTime = 0, lastXY = null;
+
+  el.addEventListener('touchend', e => {
+    // Only single-finger taps (ignore pinch, multi-touch).
+    if (e.touches.length || e.changedTouches.length !== 1) { lastTime = 0; return; }
+    const t = e.changedTouches[0];
+    const now = Date.now();
+    const near = lastXY && Math.abs(t.clientX - lastXY.x) < 30 && Math.abs(t.clientY - lastXY.y) < 30;
+
+    if (now - lastTime < 300 && near) {
+      e.preventDefault();
+      const rect = el.getBoundingClientRect();
+      const pt = L.point(t.clientX - rect.left, t.clientY - rect.top);
+      map.setZoomAround(map.containerPointToLatLng(pt), map.getZoom() + 1);
+      lastTime = 0;   // reset so a third tap doesn't re-trigger
+    } else {
+      lastTime = now;
+      lastXY = { x: t.clientX, y: t.clientY };
+    }
+  }, { passive: false });
 }
 
 // ── Theme (dark mode) ─────────────────────────────────────────────────────────
@@ -505,27 +534,23 @@ function busChip(bus) {
 // SVG icon for bus body type (double-decker / bendy). Single-deck = no icon.
 function busTypeIcon(type) {
   if (type === 'DD') {
-    return `<svg class="type-icon" width="22" height="20" viewBox="0 0 24 22" xmlns="http://www.w3.org/2000/svg" aria-label="Double-decker">
-      <!-- bus body -->
-      <rect x="2" y="2" width="20" height="16" rx="2.4" fill="currentColor"/>
-      <!-- upper deck windows -->
-      <rect x="3.6"  y="4"   width="3.2" height="3" rx="0.5" fill="#fff"/>
-      <rect x="7.6"  y="4"   width="3.2" height="3" rx="0.5" fill="#fff"/>
-      <rect x="11.6" y="4"   width="3.2" height="3" rx="0.5" fill="#fff"/>
-      <rect x="15.6" y="4"   width="3.2" height="3" rx="0.5" fill="#fff"/>
-      <!-- lower deck windows -->
-      <rect x="3.6"  y="9"   width="3.2" height="3" rx="0.5" fill="#fff"/>
-      <rect x="7.6"  y="9"   width="3.2" height="3" rx="0.5" fill="#fff"/>
-      <rect x="11.6" y="9"   width="3.2" height="3" rx="0.5" fill="#fff"/>
-      <!-- door -->
-      <rect x="15.6" y="9"   width="3.2" height="6.5" rx="0.5" fill="#fff"/>
-      <!-- headlight -->
-      <rect x="20"   y="14"  width="1.4" height="1.4" rx="0.3" fill="#fff"/>
-      <!-- wheels -->
-      <circle cx="6"  cy="19" r="2"  fill="currentColor"/>
-      <circle cx="18" cy="19" r="2"  fill="currentColor"/>
-      <circle cx="6"  cy="19" r="0.8" fill="#fff"/>
-      <circle cx="18" cy="19" r="0.8" fill="#fff"/>
+    // Head-on front view: a destination blind + two stacked windscreen rows read
+    // as "two decks" far more clearly than a side silhouette at this small size.
+    return `<svg class="type-icon" width="17.5" height="20" viewBox="0 0 21 24" xmlns="http://www.w3.org/2000/svg" aria-label="Double-decker">
+      <!-- wheels (drawn first so they peek out below the body) -->
+      <circle cx="6"  cy="20.6" r="2" fill="currentColor"/>
+      <circle cx="15" cy="20.6" r="2" fill="currentColor"/>
+      <!-- body -->
+      <rect x="3" y="1.4" width="15" height="19" rx="2.8" fill="currentColor"/>
+      <!-- destination blind -->
+      <rect x="5" y="2.7" width="11" height="1.5" rx="0.5" fill="#fff" opacity="0.9"/>
+      <!-- upper deck window -->
+      <rect x="4.4" y="4.9"  width="12.2" height="4.5" rx="1.1" fill="#fff"/>
+      <!-- lower deck windscreen -->
+      <rect x="4.4" y="10.9" width="12.2" height="4.3" rx="1.1" fill="#fff"/>
+      <!-- headlights -->
+      <circle cx="6.2"  cy="17.8" r="1.15" fill="#fff"/>
+      <circle cx="14.8" cy="17.8" r="1.15" fill="#fff"/>
     </svg>`;
   }
   if (type === 'BD') {
@@ -1365,29 +1390,48 @@ function setupLocate() {
     goToUserLocation({ onError: () => toast("Couldn't get your location. Check location access and try again.") });
   });
 
+  // Drop the "active" (filled) state once the user drags away from their dot.
+  // dragstart only fires on manual pans, not our programmatic recenter.
+  map.on('dragstart', () => document.getElementById('locate-btn').classList.remove('located'));
+
   // Custom zoom buttons (replaces Leaflet's default control so they live in
   // the same glass stack as the theme/locate buttons).
   document.getElementById('zoom-in').addEventListener('click', () => map.zoomIn());
   document.getElementById('zoom-out').addEventListener('click', () => map.zoomOut());
 }
 
+// A pulsing "you are here" dot. Shared so locate always renders the same marker.
+function setUserMarker(lat, lng, popupText) {
+  if (userMarker) userMarker.remove();
+  userMarker = L.marker([lat, lng], {
+    keyboard: false,
+    icon: L.divIcon({
+      className: 'user-loc',
+      html: '<span class="user-loc-pulse"></span><span class="user-loc-dot"></span>',
+      iconSize: [18, 18],
+      iconAnchor: [9, 9],
+    }),
+  }).addTo(map).bindPopup(popupText);
+}
+
 // Center the map on the user's current position and drop a marker.
 function goToUserLocation({ onError } = {}) {
+  const btn = document.getElementById('locate-btn');
   if (!navigator.geolocation) { onError?.(); return; }
+  if (btn.classList.contains('locating')) return;   // ignore taps while acquiring
+
+  btn.classList.add('locating');
+  btn.setAttribute('aria-busy', 'true');
+  const done = () => { btn.classList.remove('locating'); btn.removeAttribute('aria-busy'); };
 
   navigator.geolocation.getCurrentPosition(
     ({ coords: { latitude: lat, longitude: lng } }) => {
       // Remember the grant so returning users can be located silently even on
       // browsers that don't expose the permission state (e.g. iOS Safari).
       try { localStorage.setItem(LOCATION_GRANTED_KEY, '1'); } catch { /* ignore */ }
-      if (userMarker) userMarker.remove();
-      userMarker = L.circleMarker([lat, lng], {
-        radius: 8,
-        fillColor: '#1565c0',
-        color: 'white',
-        weight: 2.5,
-        fillOpacity: 1,
-      }).addTo(map).bindPopup('You are here');
+      done();
+      btn.classList.add('located');
+      setUserMarker(lat, lng, 'You are here');
       updateNearbyList();
       document.getElementById('nearby-sheet').classList.add('expanded');
       centerInVisibleArea(lat, lng, 17);
@@ -1395,8 +1439,10 @@ function goToUserLocation({ onError } = {}) {
     () => {
       // Permission revoked/denied — forget the grant so we stop auto-locating.
       try { localStorage.removeItem(LOCATION_GRANTED_KEY); } catch { /* ignore */ }
+      done();
       onError?.();
-    }
+    },
+    { enableHighAccuracy: true, timeout: 10000, maximumAge: 30000 }
   );
 }
 
