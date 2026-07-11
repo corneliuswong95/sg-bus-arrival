@@ -43,7 +43,7 @@ Endpoints: `/api/stops`, `/api/route?service=`, `/api/road-path?service=&directi
 
 ### Frontend — `public/js/app.js` (single file, vanilla)
 
-One file organized into labeled `// ── Section ──` blocks (State, Favourites, Feedback, Buski mascot, Boot, Map, Theme, Stops, Markers, Arrivals, Filters, Live vehicles, Bottom sheet, Route overview, Nearby sheet, Settings, Search, Geolocation, Postal, Toast, etc.). Follow the existing section structure when adding code.
+One file organized into labeled `// ── Section ──` blocks (State, Favourites, Buski mascot, Boot, Map, Theme, Stops, Markers, Arrivals, Filters, Live vehicles, Bottom sheet, Route overview, Nearby sheet, Search, Geolocation, Postal, Toast, etc.). Follow the existing section structure when adding code.
 
 - **All stops loaded once** into `allStops` and indexed in the `stopByCode` Map; nearby ranking, search, and route lists all read from this in-memory data.
 - **Marker rendering is viewport- and zoom-gated**: nothing renders below zoom 15, and only stops within the current bounds are drawn (capped at 120) for performance. Markers are added/removed on `moveend`/`zoomend`.
@@ -54,8 +54,8 @@ One file organized into labeled `// ── Section ──` blocks (State, Favour
 - **"Bus stops" live ETAs**: `#nearby-list` items show inline ETA pills (`nearbyEtaHtml`) fetched in bulk from `/api/arrivals-batch` (`refreshNearbyArrivals`, debounced + 30s interval, paused while collapsed or the tab is hidden).
 - **Arrivals auto-refresh** while a stop is open: a 30s server fetch (`ARRIVALS_REFRESH_MS`) plus a 10s local re-render tick (`ARRIVALS_TICK_MS`) that recomputes the "Xm" countdown from the last fetched data (`lastArrivalsData`) without hitting the API. Both pause while the tab is hidden; a `visibilitychange` handler refetches on return.
 - **Favourites** (`favStops`, `favServices` Sets) persist in `localStorage` and sort starred items first in the arrivals list, nearby list, and search results. `requestPersistentStorage()` calls `navigator.storage.persist()` on first favourite to reduce eviction.
-- **Personality**: a Buski bus mascot (`mascotSvg`) appears only in loading/empty/first-run states; `feedback()` fires light haptics (`navigator.vibrate`) + optional WebAudio blips on favourite/refresh/chip actions, gated by `prefHaptics`/`prefSound` (persisted, toggled in the `#settings-panel` popover); recoverable errors use a `toast()` instead of `alert()`. All new animations sit behind `@media (prefers-reduced-motion: no-preference)`.
-- **Glass controls**: the search pill and the top-right control stack (`#map-controls`: theme, custom zoom +/−, locate, settings) use the `.glass` utility (`backdrop-filter`) over the map. Zoom is hand-rolled (`map.zoomIn/Out`), not Leaflet's default control.
+- **Personality**: a Buski bus mascot (`mascotSvg`) appears only in loading/empty/first-run states; recoverable errors use a `toast()` instead of `alert()`. All new animations sit behind `@media (prefers-reduced-motion: no-preference)`.
+- **Glass controls**: the search pill and the top-right control stack (`#map-controls`: theme, custom zoom +/−, locate) use the `.glass` utility (`backdrop-filter`) over the map. Zoom is hand-rolled (`map.zoomIn/Out`), not Leaflet's default control.
 
 ### Theming (dark mode)
 

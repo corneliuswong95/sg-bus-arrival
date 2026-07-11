@@ -61,40 +61,6 @@ function starSvg() {
   return `<svg class="star-icon" viewBox="0 0 24 24" width="18" height="18" aria-hidden="true"><path d="M12 2.6l2.75 5.57 6.15.9-4.45 4.34 1.05 6.12L12 16.9l-5.5 2.89 1.05-6.12L3.1 9.07l6.15-.9z"/></svg>`;
 }
 
-// ── Feedback (haptics + optional sound) ───────────────────────────────────────
-function loadPref(key, def) {
-  try { const v = localStorage.getItem(key); return v === null ? def : v === '1'; }
-  catch { return def; }
-}
-function savePref(key, val) { try { localStorage.setItem(key, val ? '1' : '0'); } catch { /* ignore */ } }
-
-let prefHaptics = loadPref('prefHaptics', true);   // on by default
-let prefSound = loadPref('prefSound', false);      // off by default
-let audioCtx = null;
-
-// A light tap ('tap') or a two-note confirm ('success').
-function feedback(type = 'tap') {
-  if (prefHaptics && navigator.vibrate) {
-    try { navigator.vibrate(type === 'success' ? [8, 24, 8] : 12); } catch { /* ignore */ }
-  }
-  if (prefSound) playBlip(type);
-}
-function playBlip(type) {
-  try {
-    audioCtx = audioCtx || new (window.AudioContext || window.webkitAudioContext)();
-    const t = audioCtx.currentTime;
-    const o = audioCtx.createOscillator();
-    const g = audioCtx.createGain();
-    o.connect(g); g.connect(audioCtx.destination);
-    o.type = 'sine';
-    o.frequency.value = type === 'success' ? 880 : 620;
-    g.gain.setValueAtTime(0.0001, t);
-    g.gain.exponentialRampToValueAtTime(0.05, t + 0.01);
-    g.gain.exponentialRampToValueAtTime(0.0001, t + 0.14);
-    o.start(t); o.stop(t + 0.15);
-  } catch { /* ignore */ }
-}
-
 // ── Boot ────────────────────────────────────────────────────────────────────
 document.addEventListener('DOMContentLoaded', async () => {
   initMap();
@@ -104,7 +70,6 @@ document.addEventListener('DOMContentLoaded', async () => {
   setupSheet();
   setupNearbySheet();
   setupFilters();
-  setupSettings();
   await loadAllStops();
   updateNearbyList();
   maybePromptForLocation();
@@ -616,7 +581,6 @@ function setupFilters() {
     const chip = e.target.closest('.filter-chip');
     if (!chip) return;
     currentFilter = chip.dataset.filter;
-    feedback('tap');
     syncFilterChips();
     if (lastArrivalsData) renderArrivals(lastArrivalsData);
   });
@@ -631,31 +595,6 @@ function syncFilterChips() {
 // Called each render; keeps the chip highlight in sync with the active filter.
 function updateFilterChips() {
   syncFilterChips();
-}
-
-// ── Settings (haptics / sound toggles) ────────────────────────────────────────
-function setupSettings() {
-  const panel = document.getElementById('settings-panel');
-  const btn = document.getElementById('settings-btn');
-  const hap = document.getElementById('toggle-haptics');
-  const snd = document.getElementById('toggle-sound');
-
-  const sync = () => {
-    hap.setAttribute('aria-checked', String(prefHaptics));
-    snd.setAttribute('aria-checked', String(prefSound));
-  };
-  sync();
-
-  btn.addEventListener('click', e => { e.stopPropagation(); panel.classList.toggle('hidden'); });
-  hap.addEventListener('click', () => { prefHaptics = !prefHaptics; savePref('prefHaptics', prefHaptics); sync(); feedback('tap'); });
-  snd.addEventListener('click', () => { prefSound = !prefSound; savePref('prefSound', prefSound); sync(); feedback('success'); });
-
-  document.addEventListener('click', e => {
-    if (panel.classList.contains('hidden')) return;
-    if (!e.target.closest('#settings-panel') && !e.target.closest('#settings-btn')) {
-      panel.classList.add('hidden');
-    }
-  });
 }
 
 // ── Live vehicles ─────────────────────────────────────────────────────────────
@@ -806,14 +745,13 @@ function setupSheet() {
     if (nearbyExpanded()) refreshNearbyArrivals();
   });
   document.getElementById('refresh-btn').addEventListener('click', () => {
-    if (selectedCode) { feedback('tap'); loadArrivals(selectedCode); }
+    if (selectedCode) loadArrivals(selectedCode);
   });
   document.getElementById('fav-stop-btn').addEventListener('click', () => {
     if (!selectedCode) return;
     toggleFav(favStops, 'favStops', selectedCode);
     const starred = favStops.has(selectedCode);
     document.getElementById('fav-stop-btn').classList.toggle('starred', starred);
-    if (starred) feedback('success');
     updateNearbyList();
   });
   document.getElementById('back-btn').addEventListener('click', () => {
@@ -827,7 +765,6 @@ function setupSheet() {
     const starBtn = e.target.closest('.star-btn');
     if (starBtn) {
       toggleFav(favServices, 'favServices', starBtn.dataset.favService);
-      if (favServices.has(starBtn.dataset.favService)) feedback('success');
       if (lastArrivalsData) renderArrivals(lastArrivalsData);
       return;
     }
@@ -1440,6 +1377,9 @@ function goToUserLocation({ onError } = {}) {
 
   navigator.geolocation.getCurrentPosition(
     ({ coords: { latitude: lat, longitude: lng } }) => {
+      // Remember the grant so returning users can be located silently even on
+      // browsers that don't expose the permission state (e.g. iOS Safari).
+      try { localStorage.setItem(LOCATION_GRANTED_KEY, '1'); } catch { /* ignore */ }
       if (userMarker) userMarker.remove();
       userMarker = L.circleMarker([lat, lng], {
         radius: 8,
@@ -1452,7 +1392,11 @@ function goToUserLocation({ onError } = {}) {
       document.getElementById('nearby-sheet').classList.add('expanded');
       centerInVisibleArea(lat, lng, 17);
     },
-    () => onError?.()
+    () => {
+      // Permission revoked/denied — forget the grant so we stop auto-locating.
+      try { localStorage.removeItem(LOCATION_GRANTED_KEY); } catch { /* ignore */ }
+      onError?.();
+    }
   );
 }
 
@@ -1485,16 +1429,30 @@ async function goToPostalCode(postal) {
 
 // ── First-load location prompt ────────────────────────────────────────────────
 const LOCATION_PROMPT_KEY = 'locationPromptDismissed';
+const LOCATION_GRANTED_KEY = 'locationGranted';
 
 async function maybePromptForLocation() {
   if (!navigator.geolocation) return;
 
-  // If the browser already granted permission, locate silently — no popup.
+  // Query the permission state where we can. iOS Safari (and some others) don't
+  // support querying 'geolocation', so this throws — permState stays null.
+  let permState = null;
   try {
     const status = await navigator.permissions?.query({ name: 'geolocation' });
-    if (status?.state === 'granted') { goToUserLocation(); return; }
-    if (status?.state === 'denied') return;
-  } catch { /* Permissions API unsupported — fall through to the popup */ }
+    permState = status?.state ?? null;
+  } catch { /* Permissions API unsupported for geolocation */ }
+
+  // If the browser already granted permission, locate silently — no popup.
+  if (permState === 'granted') { goToUserLocation(); return; }
+  if (permState === 'denied') return;
+
+  // permState is null (can't query) or 'prompt'. When we can't query but the
+  // user granted location in a past session, the grant persists across reloads —
+  // locate silently instead of re-showing the prompt.
+  if (permState === null && localStorage.getItem(LOCATION_GRANTED_KEY)) {
+    goToUserLocation();
+    return;
+  }
 
   // Don't nag: skip if the user already dismissed the prompt before.
   if (localStorage.getItem(LOCATION_PROMPT_KEY)) return;

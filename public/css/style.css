@@ -516,56 +516,6 @@ html, body {
 .zoom-group .map-btn:active { background: var(--fill); }
 .zoom-group #zoom-in { border-bottom: 1px solid var(--glass-border); }
 
-/* ── Settings popover ────────────────────────────────────────────── */
-#settings-panel {
-  position: fixed;
-  right: 62px;
-  top: calc(max(12px, env(safe-area-inset-top)) + 250px);
-  z-index: 401;
-  border-radius: 14px;
-  box-shadow: var(--glass-shadow);
-  padding: 6px;
-  min-width: 156px;
-}
-#settings-panel.hidden { display: none; }
-
-.settings-row {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 16px;
-  padding: 8px 10px;
-  font-size: 13px;
-  font-weight: 500;
-  color: var(--text);
-}
-
-.toggle {
-  width: 40px;
-  height: 24px;
-  border-radius: 12px;
-  background: var(--fill-active);
-  border: none;
-  position: relative;
-  cursor: pointer;
-  flex-shrink: 0;
-  transition: background .2s;
-}
-.toggle::after {
-  content: "";
-  position: absolute;
-  top: 3px;
-  left: 3px;
-  width: 18px;
-  height: 18px;
-  border-radius: 50%;
-  background: #fff;
-  box-shadow: 0 1px 3px rgba(0,0,0,.3);
-  transition: transform .2s;
-}
-.toggle[aria-checked="true"] { background: var(--blue); }
-.toggle[aria-checked="true"]::after { transform: translateX(16px); }
-
 /* Show the icon for the mode you'd switch TO: moon in light, sun in dark. */
 #theme-toggle .icon-sun { display: none; }
 #theme-toggle .icon-moon { display: block; }
