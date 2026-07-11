@@ -10,13 +10,19 @@ let lastArrivalsData = null;
 const ARRIVALS_REFRESH_MS = 30_000; // LTA data updates ~every 20-30s
 const ARRIVALS_TICK_MS = 10_000;    // local re-render so "Xm" counts down
 let openedFromNearby = false;
+let currentFilter = 'all'; // arrivals filter: all | saved | arriving
 let nearbyShowCount = 10;
 const NEARBY_INCREMENT = 10;
 const NEARBY_MAX = 50;
+const nearbyArrivals = new Map();  // BusStopCode → Services[] (live ETAs)
+let nearbyArrivalsDebounce = null;
 
 let currentRouteLayer = null;
 let routeServiceNo = null;
 let routeStopHighlight = null; // marker for the stop tapped in the route list
+
+let liveBusLayer = null;
+const liveBusMarkers = new Map(); // "ServiceNo#idx" → { marker, raf }
 
 // ── Favourites (persisted in localStorage, kept indefinitely) ─────────────────
 const favStops = new Set(loadFavs('favStops'));       // BusStopCode strings
@@ -55,6 +61,40 @@ function starSvg() {
   return `<svg class="star-icon" viewBox="0 0 24 24" width="18" height="18" aria-hidden="true"><path d="M12 2.6l2.75 5.57 6.15.9-4.45 4.34 1.05 6.12L12 16.9l-5.5 2.89 1.05-6.12L3.1 9.07l6.15-.9z"/></svg>`;
 }
 
+// ── Feedback (haptics + optional sound) ───────────────────────────────────────
+function loadPref(key, def) {
+  try { const v = localStorage.getItem(key); return v === null ? def : v === '1'; }
+  catch { return def; }
+}
+function savePref(key, val) { try { localStorage.setItem(key, val ? '1' : '0'); } catch { /* ignore */ } }
+
+let prefHaptics = loadPref('prefHaptics', true);   // on by default
+let prefSound = loadPref('prefSound', false);      // off by default
+let audioCtx = null;
+
+// A light tap ('tap') or a two-note confirm ('success').
+function feedback(type = 'tap') {
+  if (prefHaptics && navigator.vibrate) {
+    try { navigator.vibrate(type === 'success' ? [8, 24, 8] : 12); } catch { /* ignore */ }
+  }
+  if (prefSound) playBlip(type);
+}
+function playBlip(type) {
+  try {
+    audioCtx = audioCtx || new (window.AudioContext || window.webkitAudioContext)();
+    const t = audioCtx.currentTime;
+    const o = audioCtx.createOscillator();
+    const g = audioCtx.createGain();
+    o.connect(g); g.connect(audioCtx.destination);
+    o.type = 'sine';
+    o.frequency.value = type === 'success' ? 880 : 620;
+    g.gain.setValueAtTime(0.0001, t);
+    g.gain.exponentialRampToValueAtTime(0.05, t + 0.01);
+    g.gain.exponentialRampToValueAtTime(0.0001, t + 0.14);
+    o.start(t); o.stop(t + 0.15);
+  } catch { /* ignore */ }
+}
+
 // ── Boot ────────────────────────────────────────────────────────────────────
 document.addEventListener('DOMContentLoaded', async () => {
   initMap();
@@ -63,9 +103,16 @@ document.addEventListener('DOMContentLoaded', async () => {
   setupTheme();
   setupSheet();
   setupNearbySheet();
+  setupFilters();
+  setupSettings();
   await loadAllStops();
   updateNearbyList();
   maybePromptForLocation();
+
+  // Keep the "Near you" ETAs fresh while the sheet is open and the tab visible.
+  setInterval(() => {
+    if (nearbyExpanded() && !document.hidden) refreshNearbyArrivals();
+  }, ARRIVALS_REFRESH_MS);
 });
 
 // ── Map ─────────────────────────────────────────────────────────────────────
@@ -78,8 +125,6 @@ function initMap() {
   });
 
   setTiles(effectiveTheme());
-
-  L.control.zoom({ position: 'topright' }).addTo(map);
 
   map.on('moveend zoomend', () => {
     updateMarkersInView();
@@ -151,7 +196,7 @@ function setupTheme() {
 
 // ── Stops ───────────────────────────────────────────────────────────────────
 async function loadAllStops() {
-  showLoading('Loading bus stops…');
+  showLoading("Finding Singapore's bus stops…");
 
   try {
     const res = await fetch('/api/stops');
@@ -289,8 +334,8 @@ function tickArrivals() {
   );
   document.querySelectorAll('#services-list .service-card').forEach(card => {
     const svc = byNo.get(card.dataset.service);
-    const row = card.querySelector('.arrival-row');
-    if (svc && row) row.innerHTML = arrivalRowHtml(svc);
+    const live = card.querySelector('.svc-live');
+    if (svc && live) live.innerHTML = svcLiveHtml(svc);
   });
 }
 
@@ -344,53 +389,123 @@ function centerInVisibleArea(lat, lng, zoom) {
 async function loadArrivals(code) {
   const list = document.getElementById('services-list');
   if (!list.children.length) {
-    list.innerHTML = '<p class="state-msg">Fetching arrivals…</p>';
+    list.innerHTML = '<p class="state-msg">Finding your buses…</p>';
   }
 
+  const refreshBtn = document.getElementById('refresh-btn');
+  refreshBtn.classList.add('spinning');
   try {
     const res = await fetch(`/api/arrivals?code=${encodeURIComponent(code)}`);
     if (!res.ok) throw new Error();
     const data = await res.json();
     lastArrivalsData = data;
     renderArrivals(data);
+    updateLiveBuses(data);
     document.getElementById('updated-label').textContent =
       'Updated ' + new Date().toLocaleTimeString('en-SG', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
   } catch {
-    list.innerHTML = '<p class="state-msg error">Failed to load arrivals.<br>Check your connection and try again.</p>';
+    if (!list.children.length || list.querySelector('.state-msg')) {
+      list.innerHTML = busyEmptyHtml("Couldn't load arrivals", 'Check your connection — Buski will try again shortly.');
+    }
+  } finally {
+    refreshBtn.classList.remove('spinning');
   }
 }
 
 function renderArrivals(data) {
   const list = document.getElementById('services-list');
-  const services = (data.Services || [])
+  const all = (data.Services || [])
     .filter(s => s.ServiceNo)
     .sort((a, b) => favFirst(favServices, a.ServiceNo, b.ServiceNo)
                  || compareServiceNo(a.ServiceNo, b.ServiceNo));
 
+  const services = applyServiceFilter(all);
+  updateFilterChips(all);
+
   if (!services.length) {
-    list.innerHTML = '<p class="state-msg">No bus services at this stop right now.</p>';
+    list.innerHTML = emptyServicesHtml(all.length);
     return;
   }
 
   list.innerHTML = services.map(svc => {
-    const dest = stopByCode.get(svc.NextBus?.DestinationCode)?.Description || '';
     const isActive = svc.ServiceNo === routeServiceNo;
     return `
       <div class="service-card${isActive ? ' route-active' : ''}" data-service="${escHtml(svc.ServiceNo)}">
-        <div class="svc-header">
+        <div class="svc-id">
           <span class="svc-no">${escHtml(svc.ServiceNo)}</span>
-          ${dest ? `<span class="svc-dest">${escHtml(dest.toUpperCase())}</span>` : ''}
           ${operatorBadge(svc.Operator)}
-          <button class="star-btn${favServices.has(svc.ServiceNo) ? ' starred' : ''}" data-fav-service="${escHtml(svc.ServiceNo)}" aria-label="Favourite bus ${escHtml(svc.ServiceNo)}">${starSvg()}</button>
         </div>
-        <div class="arrival-row">${arrivalRowHtml(svc)}</div>
+        <div class="svc-live">${svcLiveHtml(svc)}</div>
+        <button class="star-btn${favServices.has(svc.ServiceNo) ? ' starred' : ''}" data-fav-service="${escHtml(svc.ServiceNo)}" aria-label="Favourite bus ${escHtml(svc.ServiceNo)}">${starSvg()}</button>
       </div>`;
   }).join('');
 }
 
-// The three arrival chips for a service (recomputed each render so times tick).
-function arrivalRowHtml(svc) {
-  return busChip(svc.NextBus) + busChip(svc.NextBus2) + busChip(svc.NextBus3);
+// Filter the sorted service list by the active chip.
+function applyServiceFilter(services) {
+  if (currentFilter === 'saved')    return services.filter(s => favServices.has(s.ServiceNo));
+  if (currentFilter === 'arriving') return services.filter(s => { const m = busMins(s.NextBus); return m !== null && m <= 3; });
+  return services;
+}
+
+function emptyServicesHtml(total) {
+  if (total > 0 && currentFilter === 'saved')    return '<p class="state-msg">No starred buses at this stop yet.</p>';
+  if (total > 0 && currentFilter === 'arriving') return '<p class="state-msg">Nothing arriving in the next few minutes.</p>';
+  return busyEmptyHtml('No buses running here right now.', "Buski will keep watching — pull to refresh in a bit.");
+}
+
+// The live (time-sensitive) half of a service card: hero countdown, the "then"
+// line, destination and crowding. Re-rendered every tick so minutes count down.
+function svcLiveHtml(svc) {
+  const nb = svc.NextBus;
+  const dest = stopByCode.get(nb?.DestinationCode)?.Description || '';
+  const mins = busMins(nb);
+  const live = !!nb && Number(nb.Monitored) === 1;
+
+  let hero;
+  if (mins === null)     hero = '<span class="eta-none">—</span>';
+  else if (mins <= 0)    hero = '<span class="eta-now">Arr</span>';
+  else                   hero = `<span class="eta-num">${mins}</span><span class="eta-unit">min</span>`;
+  const pulse = (mins !== null && mins > 0 && live) ? '<span class="pdot" title="Live tracking"></span>' : '';
+  const typeIcon = busTypeIcon(nb?.Type);
+
+  const rest = [busMins(svc.NextBus2), busMins(svc.NextBus3)]
+    .filter(m => m !== null)
+    .map(m => (m <= 0 ? 'Arr' : m));
+  let subText = '';
+  if (mins === null)      subText = 'no timing available';
+  else if (rest.length)   subText = `then ${rest.join(' · ')} min`;
+  const subHtml = subText ? `<div class="eta-sub">${subText}</div>` : '';
+
+  return `
+    <div class="svc-live-main">
+      <div class="svc-eta${live ? '' : ' scheduled'}">
+        <div class="eta-hero">${hero}${pulse}${typeIcon ? `<span class="type-icon">${typeIcon}</span>` : ''}</div>
+        ${subHtml}
+      </div>
+      <div class="svc-side">${crowdHtml(nb?.Load)}</div>
+    </div>
+    ${dest ? `<div class="svc-dest-row"><span class="svc-dest">→ ${escHtml(dest)}</span></div>` : ''}`;
+}
+
+// Whole minutes until a bus arrives, or null when there's no live estimate.
+function busMins(bus) {
+  if (!bus?.EstimatedArrival) return null;
+  return Math.round((new Date(bus.EstimatedArrival) - Date.now()) / 60_000);
+}
+
+// Crowding as a 3-segment bar + colour-coded word from the LTA Load field
+// (SEA/SDA/LSD). Colour + text keeps it readable for colour-blind users.
+function crowdHtml(load) {
+  const map = {
+    SEA: { n: 1, cls: 'seats',    word: 'Seats' },
+    SDA: { n: 2, cls: 'standing', word: 'Standing' },
+    LSD: { n: 3, cls: 'limited',  word: 'Full' },
+  };
+  const c = map[load];
+  if (!c) return '';
+  const segs = [1, 2, 3].map(i => `<span class="crowd-seg${i <= c.n ? ' on' : ''}"></span>`).join('');
+  return `<div class="crowd ${c.cls}"><span class="crowd-bar" role="img" aria-label="Crowding: ${c.word}">${segs}</span><span class="crowd-word">${c.word}</span></div>`;
 }
 
 // Natural sort for bus service numbers: numeric part first (10 before 97),
@@ -495,6 +610,138 @@ function operatorBadge(op) {
   return `<span class="svc-operator" style="background:${style.bg}">${escHtml(style.label)}</span>`;
 }
 
+// ── Filters (All / Saved / Arriving chips) ────────────────────────────────────
+function setupFilters() {
+  document.getElementById('filter-chips').addEventListener('click', e => {
+    const chip = e.target.closest('.filter-chip');
+    if (!chip) return;
+    currentFilter = chip.dataset.filter;
+    feedback('tap');
+    syncFilterChips();
+    if (lastArrivalsData) renderArrivals(lastArrivalsData);
+  });
+}
+
+function syncFilterChips() {
+  document.querySelectorAll('#filter-chips .filter-chip').forEach(c => {
+    c.classList.toggle('active', c.dataset.filter === currentFilter);
+  });
+}
+
+// Called each render; keeps the chip highlight in sync with the active filter.
+function updateFilterChips() {
+  syncFilterChips();
+}
+
+// ── Settings (haptics / sound toggles) ────────────────────────────────────────
+function setupSettings() {
+  const panel = document.getElementById('settings-panel');
+  const btn = document.getElementById('settings-btn');
+  const hap = document.getElementById('toggle-haptics');
+  const snd = document.getElementById('toggle-sound');
+
+  const sync = () => {
+    hap.setAttribute('aria-checked', String(prefHaptics));
+    snd.setAttribute('aria-checked', String(prefSound));
+  };
+  sync();
+
+  btn.addEventListener('click', e => { e.stopPropagation(); panel.classList.toggle('hidden'); });
+  hap.addEventListener('click', () => { prefHaptics = !prefHaptics; savePref('prefHaptics', prefHaptics); sync(); feedback('tap'); });
+  snd.addEventListener('click', () => { prefSound = !prefSound; savePref('prefSound', prefSound); sync(); feedback('success'); });
+
+  document.addEventListener('click', e => {
+    if (panel.classList.contains('hidden')) return;
+    if (!e.target.closest('#settings-panel') && !e.target.closest('#settings-btn')) {
+      panel.classList.add('hidden');
+    }
+  });
+}
+
+// ── Live vehicles ─────────────────────────────────────────────────────────────
+// The LTA arrivals payload carries each incoming bus's live lat/lng. When a
+// route is shown, drop a marker for that service's monitored buses and glide
+// them toward the stop between 30s refreshes. Scoped to the active route so the
+// map stays readable (all services at once would be dozens of markers).
+function updateLiveBuses(data) {
+  if (!map) return;
+  if (!routeServiceNo) { clearLiveBuses(); return; }
+  if (!liveBusLayer) liveBusLayer = L.layerGroup().addTo(map);
+
+  const reduce = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+  const seen = new Set();
+
+  (data?.Services || [])
+    .filter(svc => svc.ServiceNo === routeServiceNo)
+    .forEach(svc => {
+      [svc.NextBus, svc.NextBus2, svc.NextBus3].forEach((bus, idx) => {
+        const lat = parseFloat(bus?.Latitude), lng = parseFloat(bus?.Longitude);
+        if (!bus || Number(bus.Monitored) !== 1) return;
+        if (!Number.isFinite(lat) || !Number.isFinite(lng) || (lat === 0 && lng === 0)) return;
+        const key = `${svc.ServiceNo}#${idx}`;
+        seen.add(key);
+        const loadCls = { SEA: 'seats', SDA: 'standing', LSD: 'limited' }[bus.Load] || '';
+        let entry = liveBusMarkers.get(key);
+        if (!entry) {
+          const marker = L.marker([lat, lng], {
+            icon: makeBusIcon(svc.ServiceNo, loadCls),
+            zIndexOffset: 600,
+            interactive: false,
+            keyboard: false,
+          }).addTo(liveBusLayer);
+          liveBusMarkers.set(key, { marker });
+        } else {
+          entry.marker.setIcon(makeBusIcon(svc.ServiceNo, loadCls));
+          if (reduce) entry.marker.setLatLng([lat, lng]);
+          else animateMarkerTo(entry, [lat, lng]);
+        }
+      });
+    });
+
+  for (const [key, entry] of liveBusMarkers) {
+    if (!seen.has(key)) {
+      if (entry.raf) cancelAnimationFrame(entry.raf);
+      liveBusLayer.removeLayer(entry.marker);
+      liveBusMarkers.delete(key);
+    }
+  }
+}
+
+function makeBusIcon(serviceNo, loadCls) {
+  return L.divIcon({
+    className: '',
+    html: `<div class="live-bus ${loadCls}"><span class="live-bus-no">${escHtml(serviceNo)}</span></div>`,
+    iconSize: [30, 22],
+    iconAnchor: [15, 11],
+  });
+}
+
+// Smoothly interpolate a marker from its current position to `to` with rAF.
+function animateMarkerTo(entry, to) {
+  const from = entry.marker.getLatLng();
+  const start = performance.now();
+  const dur = 900;
+  if (entry.raf) cancelAnimationFrame(entry.raf);
+  const step = now => {
+    const t = Math.min(1, (now - start) / dur);
+    const e = t < 0.5 ? 2 * t * t : -1 + (4 - 2 * t) * t; // easeInOutQuad
+    entry.marker.setLatLng([
+      from.lat + (to[0] - from.lat) * e,
+      from.lng + (to[1] - from.lng) * e,
+    ]);
+    if (t < 1) entry.raf = requestAnimationFrame(step);
+  };
+  entry.raf = requestAnimationFrame(step);
+}
+
+function clearLiveBuses() {
+  for (const [, entry] of liveBusMarkers) {
+    if (entry.raf) cancelAnimationFrame(entry.raf);
+    if (liveBusLayer) liveBusLayer.removeLayer(entry.marker);
+  }
+  liveBusMarkers.clear();
+}
+
 // ── Bottom sheet ─────────────────────────────────────────────────────────────
 function getSheetSnaps() {
   // Sheet is 92vh tall. translateY(0) = fully open. Larger px = more hidden.
@@ -525,6 +772,8 @@ function openSheet(stop) {
   document.getElementById('fav-stop-btn').classList.toggle('starred', favStops.has(stop.BusStopCode));
   document.getElementById('services-list').innerHTML = '';
   document.getElementById('updated-label').textContent = '—';
+  currentFilter = 'all';
+  syncFilterChips();
   const sheet = document.getElementById('bottom-sheet');
   sheet.classList.add('open');
   // Default to mid snap on open (only on mobile-style stack layout)
@@ -552,15 +801,19 @@ function setupSheet() {
   // Refresh immediately when the tab becomes visible again (data may be stale
   // after the phone was locked or the tab was backgrounded).
   document.addEventListener('visibilitychange', () => {
-    if (!document.hidden && selectedCode) loadArrivals(selectedCode);
+    if (document.hidden) return;
+    if (selectedCode) loadArrivals(selectedCode);
+    if (nearbyExpanded()) refreshNearbyArrivals();
   });
   document.getElementById('refresh-btn').addEventListener('click', () => {
-    if (selectedCode) loadArrivals(selectedCode);
+    if (selectedCode) { feedback('tap'); loadArrivals(selectedCode); }
   });
   document.getElementById('fav-stop-btn').addEventListener('click', () => {
     if (!selectedCode) return;
     toggleFav(favStops, 'favStops', selectedCode);
-    document.getElementById('fav-stop-btn').classList.toggle('starred', favStops.has(selectedCode));
+    const starred = favStops.has(selectedCode);
+    document.getElementById('fav-stop-btn').classList.toggle('starred', starred);
+    if (starred) feedback('success');
     updateNearbyList();
   });
   document.getElementById('back-btn').addEventListener('click', () => {
@@ -574,6 +827,7 @@ function setupSheet() {
     const starBtn = e.target.closest('.star-btn');
     if (starBtn) {
       toggleFav(favServices, 'favServices', starBtn.dataset.favService);
+      if (favServices.has(starBtn.dataset.favService)) feedback('success');
       if (lastArrivalsData) renderArrivals(lastArrivalsData);
       return;
     }
@@ -743,6 +997,9 @@ async function showRoute(serviceNo) {
     currentRouteLayer = L.layerGroup([line, ...dots]).addTo(map);
     routeServiceNo = serviceNo;
 
+    // Drop live vehicle markers for this service right away.
+    updateLiveBuses(lastArrivalsData);
+
     // Re-render arrivals to highlight the active card
     refreshActiveCard();
 
@@ -782,6 +1039,7 @@ function clearRoute() {
     currentRouteLayer = null;
   }
   removeRouteStopHighlight();
+  clearLiveBuses();
   routeServiceNo = null;
   document.getElementById('clear-route-btn').classList.add('hidden');
   exitRouteMode();
@@ -839,13 +1097,13 @@ function renderRouteStops(chosen, serviceNo) {
     let cls = 'upcoming';
     if (curIdx >= 0 && i < curIdx) cls = 'passed';
     else if (i === curIdx) cls = 'current';
-    const hereBadge = i === curIdx ? '<span class="rs-here">You are here</span>' : '';
+    const isHere = i === curIdx;
     return `
       <div class="route-stop ${cls}" data-code="${escHtml(r.BusStopCode)}">
         <span class="rs-track"><span class="rs-dot"></span></span>
         <span class="rs-info">
-          <span class="rs-name">${escHtml(name)}${hereBadge}</span>
-          <span class="rs-road">${escHtml(road)}</span>
+          <span class="rs-name">${escHtml(name)}</span>
+          <span class="rs-road">${isHere ? '<span class="rs-here">You are here</span>' : escHtml(road)}</span>
         </span>
         <span class="rs-code">${escHtml(r.BusStopCode)}</span>
       </div>`;
@@ -874,6 +1132,7 @@ function setupNearbySheet() {
   handle.addEventListener('click', () => {
     if (didDrag) { didDrag = false; return; }
     sheet.classList.toggle('expanded');
+    if (nearbyExpanded()) scheduleNearbyArrivals();
   });
 
   // Tap a stop in the list = open arrivals; tap "Load more" = grow the list
@@ -925,6 +1184,7 @@ function setupNearbySheet() {
     } else {
       sheet.classList.toggle('expanded', startExpanded);
     }
+    if (nearbyExpanded()) scheduleNearbyArrivals();
     startY = null;
   }
 
@@ -970,10 +1230,15 @@ function updateNearbyList() {
 
   const itemHtml = ({ s, d }) => `
     <div class="nearby-item" data-code="${s.BusStopCode}">
-      <span class="nearby-code">${s.BusStopCode}</span>
-      <span class="nearby-name">${favStops.has(s.BusStopCode) ? '<span class="fav-mark">★</span> ' : ''}${escHtml(s.Description)}</span>
-      <span class="nearby-road">${escHtml(s.RoadName)}</span>
-      <span class="nearby-distance">${formatDistance(d)}</span>
+      <div class="ni-top">
+        <span class="nearby-code">${s.BusStopCode}</span>
+        <div class="ni-main">
+          <span class="nearby-name">${favStops.has(s.BusStopCode) ? '<span class="fav-mark">★</span> ' : ''}${escHtml(s.Description)}</span>
+          <span class="nearby-road">${escHtml(s.RoadName)}</span>
+        </div>
+        <span class="nearby-distance">${formatDistance(d)}</span>
+      </div>
+      <div class="nearby-eta">${nearbyEtaHtml(nearbyArrivals.get(s.BusStopCode))}</div>
     </div>`;
 
   let html = '';
@@ -988,6 +1253,58 @@ function updateNearbyList() {
   if (hasMore) html += `<button id="load-more-btn" type="button">Load more</button>`;
 
   list.innerHTML = html;
+
+  if (nearbyExpanded()) scheduleNearbyArrivals();
+}
+
+// ── Near you: live ETAs in the nearby list ────────────────────────────────────
+function nearbyExpanded() {
+  return document.getElementById('nearby-sheet').classList.contains('expanded');
+}
+
+// Compact ETA pills for a stop: up to 3 soonest services (number + minutes).
+function nearbyEtaHtml(services) {
+  if (!services) return '';
+  const rows = services
+    .filter(s => s.ServiceNo && s.NextBus?.EstimatedArrival)
+    .map(s => ({ no: s.ServiceNo, mins: busMins(s.NextBus), load: s.NextBus.Load }))
+    .filter(r => r.mins !== null)
+    .sort((a, b) => a.mins - b.mins)
+    .slice(0, 3);
+  if (!rows.length) return '<span class="ne-none">No buses right now</span>';
+  return rows.map(r => {
+    const loadCls = { SEA: 'seats', SDA: 'standing', LSD: 'limited' }[r.load] || '';
+    const t = r.mins <= 0 ? 'Arr' : `${r.mins}m`;
+    return `<span class="ne-pill ${loadCls}"><span class="ne-no">${escHtml(r.no)}</span><span class="ne-min">${t}</span></span>`;
+  }).join('');
+}
+
+function scheduleNearbyArrivals() {
+  clearTimeout(nearbyArrivalsDebounce);
+  nearbyArrivalsDebounce = setTimeout(refreshNearbyArrivals, 350);
+}
+
+// Fetch live arrivals for the visible nearby stops (batched) and inject the ETA
+// pills in place — no full re-render, so the list doesn't jump. Paused while the
+// sheet is closed or the tab is hidden.
+async function refreshNearbyArrivals() {
+  if (!nearbyExpanded() || document.hidden) return;
+  const items = [...document.querySelectorAll('#nearby-list .nearby-item')].slice(0, 8);
+  const codes = items.map(el => el.dataset.code).filter(Boolean);
+  if (!codes.length) return;
+
+  try {
+    const res = await fetch(`/api/arrivals-batch?codes=${encodeURIComponent(codes.join(','))}`);
+    if (!res.ok) return;
+    const data = await res.json();
+    for (const [code, services] of Object.entries(data)) nearbyArrivals.set(code, services);
+    document.querySelectorAll('#nearby-list .nearby-item').forEach(el => {
+      const eta = el.querySelector('.nearby-eta');
+      if (eta && nearbyArrivals.has(el.dataset.code)) {
+        eta.innerHTML = nearbyEtaHtml(nearbyArrivals.get(el.dataset.code));
+      }
+    });
+  } catch { /* keep whatever ETAs we already have */ }
 }
 
 function haversineKm(lat1, lng1, lat2, lng2) {
@@ -1108,8 +1425,13 @@ function searchStops(q) {
 // ── Geolocation ──────────────────────────────────────────────────────────────
 function setupLocate() {
   document.getElementById('locate-btn').addEventListener('click', () => {
-    goToUserLocation({ onError: () => alert('Unable to access your location.') });
+    goToUserLocation({ onError: () => toast("Couldn't get your location. Check location access and try again.") });
   });
+
+  // Custom zoom buttons (replaces Leaflet's default control so they live in
+  // the same glass stack as the theme/locate buttons).
+  document.getElementById('zoom-in').addEventListener('click', () => map.zoomIn());
+  document.getElementById('zoom-out').addEventListener('click', () => map.zoomOut());
 }
 
 // Center the map on the user's current position and drop a marker.
@@ -1141,7 +1463,7 @@ async function goToPostalCode(postal) {
     const res = await fetch(`/api/postal?code=${encodeURIComponent(postal)}`);
     const data = await res.json();
     hideLoading();
-    if (!res.ok) { alert(data.error || 'Postal code not found.'); return; }
+    if (!res.ok) { toast(data.error || "Couldn't find that postal code."); return; }
 
     if (userMarker) userMarker.remove();
     userMarker = L.circleMarker([data.lat, data.lng], {
@@ -1157,7 +1479,7 @@ async function goToPostalCode(postal) {
     centerInVisibleArea(data.lat, data.lng, 17);
   } catch {
     hideLoading();
-    alert('Postal code lookup failed. Check your connection.');
+    toast('Postal lookup failed — check your connection.');
   }
 }
 
@@ -1218,6 +1540,46 @@ function showError(msg, showApiLink) {
   txt.textContent = msg;
   txt.style.color = '#d32f2f';
   document.getElementById('loading-link').classList.toggle('hidden', !showApiLink);
+}
+
+// ── Toast ────────────────────────────────────────────────────────────────────
+// Small non-blocking status pill (replaces alert() for recoverable errors).
+let toastTimer = null;
+function toast(msg, ms = 3400) {
+  const el = document.getElementById('toast');
+  if (!el) return;
+  el.textContent = msg;
+  el.classList.remove('hidden');
+  requestAnimationFrame(() => el.classList.add('show'));
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(() => {
+    el.classList.remove('show');
+    setTimeout(() => el.classList.add('hidden'), 260);
+  }, ms);
+}
+
+// ── Buski mascot ─────────────────────────────────────────────────────────────
+// A friendly red bus, shown only in loading / empty / first-run states — never
+// in the arrival glance.
+function mascotSvg(size = 96) {
+  return `<svg class="buski-mascot" width="${size}" height="${size}" viewBox="0 0 96 96" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+    <ellipse cx="48" cy="87" rx="25" ry="4" fill="rgba(0,0,0,.08)"/>
+    <rect x="16" y="40" width="4" height="11" rx="2" fill="var(--red)"/>
+    <rect x="76" y="40" width="4" height="11" rx="2" fill="var(--red)"/>
+    <rect x="18" y="20" width="60" height="50" rx="13" fill="var(--red)"/>
+    <rect x="24" y="29" width="21" height="17" rx="4.5" fill="#fff"/>
+    <rect x="51" y="29" width="21" height="17" rx="4.5" fill="#fff"/>
+    <circle cx="35" cy="38" r="3.4" fill="var(--red)"/>
+    <circle cx="62" cy="38" r="3.4" fill="var(--red)"/>
+    <path d="M40 56 q8 6.5 16 0" stroke="#fff" stroke-width="3" stroke-linecap="round" fill="none"/>
+    <rect x="27" y="67" width="11" height="8" rx="3" fill="#3a3a3a"/>
+    <rect x="58" y="67" width="11" height="8" rx="3" fill="#3a3a3a"/>
+  </svg>`;
+}
+
+// Friendly empty/error block with the mascot.
+function busyEmptyHtml(title, sub) {
+  return `<div class="empty-state">${mascotSvg(84)}<p class="empty-title">${escHtml(title)}</p>${sub ? `<p class="empty-sub">${escHtml(sub)}</p>` : ''}</div>`;
 }
 
 // ── Helpers ──────────────────────────────────────────────────────────────────

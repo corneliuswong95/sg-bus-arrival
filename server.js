@@ -441,6 +441,45 @@ app.get('/api/arrivals', async (req, res) => {
   }
 });
 
+// ── Batch arrivals (powers the "Near you" live list) ────────────────────────
+// Returns { "<code>": Services[] } for several stops at once. A short per-stop
+// cache keeps the nearby list snappy without hammering LTA when the map pans.
+const arrivalsBatchCache = new Map(); // code → { at, services }
+const ARRIVALS_BATCH_TTL = 20 * 1000; // 20s
+
+async function fetchStopArrivals(code) {
+  const cached = arrivalsBatchCache.get(code);
+  if (cached && Date.now() - cached.at < ARRIVALS_BATCH_TTL) return cached.services;
+  const data = await fetchLta(`${LTA_BASE}/v3/BusArrival?BusStopCode=${encodeURIComponent(code)}`);
+  const services = data.Services || [];
+  arrivalsBatchCache.set(code, { at: Date.now(), services });
+  return services;
+}
+
+app.get('/api/arrivals-batch', async (req, res) => {
+  if (!LTA_API_KEY || LTA_API_KEY === 'your_api_key_here') {
+    return res.status(503).json({ error: 'LTA_API_KEY not configured.' });
+  }
+  const codes = String(req.query.codes || '')
+    .split(',')
+    .map(c => c.trim())
+    .filter(Boolean)
+    .slice(0, 8); // cap the fan-out
+  if (!codes.length) return res.status(400).json({ error: 'codes required.' });
+
+  try {
+    const out = {};
+    await runPool(codes, 6, async code => {
+      try { out[code] = await fetchStopArrivals(code); }
+      catch { out[code] = []; }
+    });
+    res.json(out);
+  } catch (err) {
+    console.error('Failed to fetch batch arrivals:', err.message);
+    res.status(500).json({ error: 'Failed to fetch bus arrivals.' });
+  }
+});
+
 // ── Postal code → lat/lng (via OneMap public search) ────────────────────────
 const postalCache = new Map(); // postal → { at, result }
 const POSTAL_TTL = 30 * 24 * 60 * 60 * 1000; // 30 days — postal codes rarely move
