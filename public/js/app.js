@@ -715,20 +715,10 @@ async function showRoute(serviceNo) {
     if (currentRouteLayer) currentRouteLayer.remove();
     removeRouteStopHighlight();
 
-    // Try road-snapped geometry first; fall back to straight stop-to-stop line.
-    let lineCoords = coords;
-    try {
-      const direction = chosen[0]?.Direction || 1;
-      const r = await fetch(`/api/road-path?service=${encodeURIComponent(serviceNo)}&direction=${direction}`);
-      if (r.ok) {
-        const data = await r.json();
-        if (data.coordinates?.length) {
-          lineCoords = data.coordinates.map(([lng, lat]) => [lat, lng]);
-        }
-      }
-    } catch { /* fall back to straight line */ }
-
-    const line = L.polyline(lineCoords, {
+    // Draw the straight stop-to-stop line immediately so the route shows up
+    // instantly, then upgrade it to the road-snapped geometry once that fetch
+    // returns (can take ~1s on a cold cache). Avoids a blank "Loading" wait.
+    const line = L.polyline(coords, {
       color: '#d32f2f',
       weight: 5,
       opacity: 0.85,
@@ -760,14 +750,26 @@ async function showRoute(serviceNo) {
     renderRouteStops(chosen, serviceNo);
 
     // Fit map to route bounds with padding for the bottom sheet
-    const bounds = line.getBounds();
     const isMobile = window.innerWidth < 600;
-    map.fitBounds(bounds, {
+    map.fitBounds(line.getBounds(), {
       paddingTopLeft: [20, 80],
       paddingBottomRight: [20, isMobile ? 360 : 60],
     });
 
     label.textContent = `Clear route ${serviceNo}`;
+
+    // Upgrade the straight line to road-snapped geometry when it arrives. Bail
+    // if the user switched to another route (or cleared) while it was loading.
+    try {
+      const direction = chosen[0]?.Direction || 1;
+      const r = await fetch(`/api/road-path?service=${encodeURIComponent(serviceNo)}&direction=${direction}`);
+      if (r.ok && routeServiceNo === serviceNo) {
+        const data = await r.json();
+        if (data.coordinates?.length) {
+          line.setLatLngs(data.coordinates.map(([lng, lat]) => [lat, lng]));
+        }
+      }
+    } catch { /* keep the straight line */ }
   } catch {
     label.textContent = 'Failed to load route';
     setTimeout(() => { if (routeServiceNo == null) btn.classList.add('hidden'); }, 1500);
