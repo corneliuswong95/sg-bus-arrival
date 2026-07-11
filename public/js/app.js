@@ -61,40 +61,6 @@ function starSvg() {
   return `<svg class="star-icon" viewBox="0 0 24 24" width="18" height="18" aria-hidden="true"><path d="M12 2.6l2.75 5.57 6.15.9-4.45 4.34 1.05 6.12L12 16.9l-5.5 2.89 1.05-6.12L3.1 9.07l6.15-.9z"/></svg>`;
 }
 
-// ── Feedback (haptics + optional sound) ───────────────────────────────────────
-function loadPref(key, def) {
-  try { const v = localStorage.getItem(key); return v === null ? def : v === '1'; }
-  catch { return def; }
-}
-function savePref(key, val) { try { localStorage.setItem(key, val ? '1' : '0'); } catch { /* ignore */ } }
-
-let prefHaptics = loadPref('prefHaptics', true);   // on by default
-let prefSound = loadPref('prefSound', false);      // off by default
-let audioCtx = null;
-
-// A light tap ('tap') or a two-note confirm ('success').
-function feedback(type = 'tap') {
-  if (prefHaptics && navigator.vibrate) {
-    try { navigator.vibrate(type === 'success' ? [8, 24, 8] : 12); } catch { /* ignore */ }
-  }
-  if (prefSound) playBlip(type);
-}
-function playBlip(type) {
-  try {
-    audioCtx = audioCtx || new (window.AudioContext || window.webkitAudioContext)();
-    const t = audioCtx.currentTime;
-    const o = audioCtx.createOscillator();
-    const g = audioCtx.createGain();
-    o.connect(g); g.connect(audioCtx.destination);
-    o.type = 'sine';
-    o.frequency.value = type === 'success' ? 880 : 620;
-    g.gain.setValueAtTime(0.0001, t);
-    g.gain.exponentialRampToValueAtTime(0.05, t + 0.01);
-    g.gain.exponentialRampToValueAtTime(0.0001, t + 0.14);
-    o.start(t); o.stop(t + 0.15);
-  } catch { /* ignore */ }
-}
-
 // ── Boot ────────────────────────────────────────────────────────────────────
 document.addEventListener('DOMContentLoaded', async () => {
   initMap();
@@ -104,7 +70,6 @@ document.addEventListener('DOMContentLoaded', async () => {
   setupSheet();
   setupNearbySheet();
   setupFilters();
-  setupSettings();
   await loadAllStops();
   updateNearbyList();
   maybePromptForLocation();
@@ -125,11 +90,40 @@ function initMap() {
   });
 
   setTiles(effectiveTheme());
+  setupDoubleTapZoom();
 
   map.on('moveend zoomend', () => {
     updateMarkersInView();
     updateNearbyList();
   });
+}
+
+// Double-tap to zoom on touch. Leaflet's built-in doubleClickZoom keys off
+// `dblclick`, which mobile browsers fire unreliably — so detect the double-tap
+// by hand and zoom toward the tapped point. preventDefault on the second tap
+// suppresses the synthetic mouse dblclick, so we never zoom twice.
+function setupDoubleTapZoom() {
+  const el = map.getContainer();
+  let lastTime = 0, lastXY = null;
+
+  el.addEventListener('touchend', e => {
+    // Only single-finger taps (ignore pinch, multi-touch).
+    if (e.touches.length || e.changedTouches.length !== 1) { lastTime = 0; return; }
+    const t = e.changedTouches[0];
+    const now = Date.now();
+    const near = lastXY && Math.abs(t.clientX - lastXY.x) < 30 && Math.abs(t.clientY - lastXY.y) < 30;
+
+    if (now - lastTime < 300 && near) {
+      e.preventDefault();
+      const rect = el.getBoundingClientRect();
+      const pt = L.point(t.clientX - rect.left, t.clientY - rect.top);
+      map.setZoomAround(map.containerPointToLatLng(pt), map.getZoom() + 1);
+      lastTime = 0;   // reset so a third tap doesn't re-trigger
+    } else {
+      lastTime = now;
+      lastXY = { x: t.clientX, y: t.clientY };
+    }
+  }, { passive: false });
 }
 
 // ── Theme (dark mode) ─────────────────────────────────────────────────────────
@@ -540,59 +534,48 @@ function busChip(bus) {
 // SVG icon for bus body type (double-decker / bendy). Single-deck = no icon.
 function busTypeIcon(type) {
   if (type === 'DD') {
-    return `<svg class="type-icon" width="22" height="20" viewBox="0 0 24 22" xmlns="http://www.w3.org/2000/svg" aria-label="Double-decker">
-      <!-- bus body -->
-      <rect x="2" y="2" width="20" height="16" rx="2.4" fill="currentColor"/>
-      <!-- upper deck windows -->
-      <rect x="3.6"  y="4"   width="3.2" height="3" rx="0.5" fill="#fff"/>
-      <rect x="7.6"  y="4"   width="3.2" height="3" rx="0.5" fill="#fff"/>
-      <rect x="11.6" y="4"   width="3.2" height="3" rx="0.5" fill="#fff"/>
-      <rect x="15.6" y="4"   width="3.2" height="3" rx="0.5" fill="#fff"/>
-      <!-- lower deck windows -->
-      <rect x="3.6"  y="9"   width="3.2" height="3" rx="0.5" fill="#fff"/>
-      <rect x="7.6"  y="9"   width="3.2" height="3" rx="0.5" fill="#fff"/>
-      <rect x="11.6" y="9"   width="3.2" height="3" rx="0.5" fill="#fff"/>
-      <!-- door -->
-      <rect x="15.6" y="9"   width="3.2" height="6.5" rx="0.5" fill="#fff"/>
-      <!-- headlight -->
-      <rect x="20"   y="14"  width="1.4" height="1.4" rx="0.3" fill="#fff"/>
-      <!-- wheels -->
-      <circle cx="6"  cy="19" r="2"  fill="currentColor"/>
-      <circle cx="18" cy="19" r="2"  fill="currentColor"/>
-      <circle cx="6"  cy="19" r="0.8" fill="#fff"/>
-      <circle cx="18" cy="19" r="0.8" fill="#fff"/>
+    // Head-on front view: a destination blind + two stacked windscreen rows read
+    // as "two decks" far more clearly than a side silhouette at this small size.
+    return `<svg class="type-icon" width="17.5" height="20" viewBox="0 0 21 24" xmlns="http://www.w3.org/2000/svg" aria-label="Double-decker">
+      <!-- wheels (drawn first so they peek out below the body) -->
+      <circle cx="6"  cy="20.6" r="2" fill="currentColor"/>
+      <circle cx="15" cy="20.6" r="2" fill="currentColor"/>
+      <!-- body -->
+      <rect x="3" y="1.4" width="15" height="19" rx="2.8" fill="currentColor"/>
+      <!-- destination blind -->
+      <rect x="5" y="2.7" width="11" height="1.5" rx="0.5" fill="#fff" opacity="0.9"/>
+      <!-- upper deck window -->
+      <rect x="4.4" y="4.9"  width="12.2" height="4.5" rx="1.1" fill="#fff"/>
+      <!-- lower deck windscreen -->
+      <rect x="4.4" y="10.9" width="12.2" height="4.3" rx="1.1" fill="#fff"/>
+      <!-- headlights -->
+      <circle cx="6.2"  cy="17.8" r="1.15" fill="#fff"/>
+      <circle cx="14.8" cy="17.8" r="1.15" fill="#fff"/>
     </svg>`;
   }
   if (type === 'BD') {
-    return `<svg class="type-icon" width="34" height="16" viewBox="0 0 36 18" xmlns="http://www.w3.org/2000/svg" aria-label="Bendy bus">
-      <!-- front coach body -->
-      <rect x="2" y="3" width="14" height="11" rx="2" fill="currentColor"/>
-      <!-- rear coach body -->
-      <rect x="20" y="3" width="14" height="11" rx="2" fill="currentColor"/>
+    // Side view — the only angle where the articulated "bendy" length reads.
+    // Two rounded coaches joined by a ribbed bellows; ribbon-glass windows and
+    // hubless wheels match the double-decker's style.
+    return `<svg class="type-icon" width="30" height="16" viewBox="0 0 34 18" xmlns="http://www.w3.org/2000/svg" aria-label="Bendy bus">
+      <!-- wheels (2 per coach, drawn first so they peek out below) -->
+      <circle cx="5.5"  cy="14.6" r="1.9" fill="currentColor"/>
+      <circle cx="12"   cy="14.6" r="1.9" fill="currentColor"/>
+      <circle cx="22"   cy="14.6" r="1.9" fill="currentColor"/>
+      <circle cx="28.5" cy="14.6" r="1.9" fill="currentColor"/>
+      <!-- rear + front coach bodies -->
+      <rect x="1"    y="2.6" width="14.5" height="11" rx="2.4" fill="currentColor"/>
+      <rect x="18.5" y="2.6" width="14.5" height="11" rx="2.4" fill="currentColor"/>
       <!-- articulation bellows -->
-      <rect x="16" y="4.5" width="4" height="8" fill="currentColor"/>
-      <line x1="17" y1="4.5" x2="17" y2="12.5" stroke="#fff" stroke-width="0.5" opacity="0.65"/>
-      <line x1="18" y1="4.5" x2="18" y2="12.5" stroke="#fff" stroke-width="0.5" opacity="0.65"/>
-      <line x1="19" y1="4.5" x2="19" y2="12.5" stroke="#fff" stroke-width="0.5" opacity="0.65"/>
-      <!-- front coach windows (single deck) -->
-      <rect x="3.6"  y="5" width="3.2" height="3.4" rx="0.5" fill="#fff"/>
-      <rect x="7.6"  y="5" width="3.2" height="3.4" rx="0.5" fill="#fff"/>
-      <rect x="11.4" y="5" width="3.2" height="3.4" rx="0.5" fill="#fff"/>
-      <!-- rear coach windows (single deck) -->
-      <rect x="21.4" y="5" width="3.2" height="3.4" rx="0.5" fill="#fff"/>
-      <rect x="25.4" y="5" width="3.2" height="3.4" rx="0.5" fill="#fff"/>
-      <rect x="29.4" y="5" width="3.2" height="3.4" rx="0.5" fill="#fff"/>
-      <!-- headlight -->
-      <rect x="2" y="10.5" width="1.4" height="1.4" rx="0.3" fill="#fff"/>
-      <!-- wheels: 2 per coach -->
-      <circle cx="5.5"  cy="15" r="1.7" fill="currentColor"/>
-      <circle cx="12.5" cy="15" r="1.7" fill="currentColor"/>
-      <circle cx="23.5" cy="15" r="1.7" fill="currentColor"/>
-      <circle cx="30.5" cy="15" r="1.7" fill="currentColor"/>
-      <circle cx="5.5"  cy="15" r="0.7" fill="#fff"/>
-      <circle cx="12.5" cy="15" r="0.7" fill="#fff"/>
-      <circle cx="23.5" cy="15" r="0.7" fill="#fff"/>
-      <circle cx="30.5" cy="15" r="0.7" fill="#fff"/>
+      <rect x="15.5" y="3.4" width="3" height="9.4" fill="currentColor"/>
+      <line x1="16.2" y1="3.8" x2="16.2" y2="12.4" stroke="#fff" stroke-width="0.5" opacity="0.6"/>
+      <line x1="17"   y1="3.8" x2="17"   y2="12.4" stroke="#fff" stroke-width="0.5" opacity="0.6"/>
+      <line x1="17.8" y1="3.8" x2="17.8" y2="12.4" stroke="#fff" stroke-width="0.5" opacity="0.6"/>
+      <!-- ribbon-glass windows (one band per coach) -->
+      <rect x="2.6" y="4.4" width="11"  height="3.9" rx="1.3" fill="#fff"/>
+      <rect x="20"  y="4.4" width="9.6" height="3.9" rx="1.3" fill="#fff"/>
+      <!-- headlight (front-right) -->
+      <rect x="31.6" y="10.6" width="1.3" height="1.5" rx="0.3" fill="#fff"/>
     </svg>`;
   }
   return '';
@@ -616,7 +599,6 @@ function setupFilters() {
     const chip = e.target.closest('.filter-chip');
     if (!chip) return;
     currentFilter = chip.dataset.filter;
-    feedback('tap');
     syncFilterChips();
     if (lastArrivalsData) renderArrivals(lastArrivalsData);
   });
@@ -631,31 +613,6 @@ function syncFilterChips() {
 // Called each render; keeps the chip highlight in sync with the active filter.
 function updateFilterChips() {
   syncFilterChips();
-}
-
-// ── Settings (haptics / sound toggles) ────────────────────────────────────────
-function setupSettings() {
-  const panel = document.getElementById('settings-panel');
-  const btn = document.getElementById('settings-btn');
-  const hap = document.getElementById('toggle-haptics');
-  const snd = document.getElementById('toggle-sound');
-
-  const sync = () => {
-    hap.setAttribute('aria-checked', String(prefHaptics));
-    snd.setAttribute('aria-checked', String(prefSound));
-  };
-  sync();
-
-  btn.addEventListener('click', e => { e.stopPropagation(); panel.classList.toggle('hidden'); });
-  hap.addEventListener('click', () => { prefHaptics = !prefHaptics; savePref('prefHaptics', prefHaptics); sync(); feedback('tap'); });
-  snd.addEventListener('click', () => { prefSound = !prefSound; savePref('prefSound', prefSound); sync(); feedback('success'); });
-
-  document.addEventListener('click', e => {
-    if (panel.classList.contains('hidden')) return;
-    if (!e.target.closest('#settings-panel') && !e.target.closest('#settings-btn')) {
-      panel.classList.add('hidden');
-    }
-  });
 }
 
 // ── Live vehicles ─────────────────────────────────────────────────────────────
@@ -762,6 +719,52 @@ function setSheetOffset(px) {
   sheet.style.transform = `translateY(${clamped}px)`;
 }
 
+// FLIP-animate the map controls as they reflow between the vertical stack (no
+// stop selected) and the horizontal search-bar-level row (stop selected). The
+// layout switch itself is CSS (:has(#bottom-sheet.open)); `apply` performs the
+// DOM change that triggers it, and we animate each button from its old position
+// to its new one so it visibly flows to the top and back. Desktop only.
+let controlsFlipTimer = null;
+function animateControlsReflow(apply) {
+  const reduce = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+  if (window.innerWidth < 600 || reduce) { apply(); return; }
+
+  // Animate each pill as a unit. The zoom group reshapes (tall↔wide) rather
+  // than just moving, so translate by centre delta to keep it anchored.
+  const els = [
+    document.getElementById('theme-toggle'),
+    document.querySelector('.zoom-group'),
+    document.getElementById('locate-btn'),
+  ].filter(Boolean);
+  const centre = r => ({ x: r.left + r.width / 2, y: r.top + r.height / 2 });
+  const first = els.map(el => centre(el.getBoundingClientRect()));
+
+  apply();
+
+  const last = els.map(el => centre(el.getBoundingClientRect()));
+  els.forEach((el, i) => {
+    const dx = first[i].x - last[i].x;
+    const dy = first[i].y - last[i].y;
+    el.style.transition = 'none';
+    el.style.transform = (dx || dy) ? `translate(${dx}px, ${dy}px)` : '';
+  });
+
+  // Force a reflow so the inverted (start) position is committed before we
+  // animate back to identity — otherwise the browser may skip the transition.
+  void document.getElementById('map-controls').offsetWidth;
+
+  els.forEach(el => {
+    el.style.transition = 'transform .42s cubic-bezier(.32,.72,0,1)';
+    el.style.transform = '';
+  });
+
+  // Drop the inline styles once settled so they don't fight :active / spinner.
+  clearTimeout(controlsFlipTimer);
+  controlsFlipTimer = setTimeout(() => {
+    els.forEach(el => { el.style.transition = ''; el.style.transform = ''; });
+  }, 500);
+}
+
 function openSheet(stop) {
   exitRouteMode();
   document.getElementById('nearby-sheet').classList.remove('expanded');
@@ -775,7 +778,7 @@ function openSheet(stop) {
   currentFilter = 'all';
   syncFilterChips();
   const sheet = document.getElementById('bottom-sheet');
-  sheet.classList.add('open');
+  animateControlsReflow(() => sheet.classList.add('open'));
   // Default to mid snap on open (only on mobile-style stack layout)
   if (window.innerWidth < 600) {
     requestAnimationFrame(() => setSheetOffset(getSheetSnaps().mid));
@@ -786,7 +789,7 @@ function openSheet(stop) {
 
 function closeSheet() {
   const sheet = document.getElementById('bottom-sheet');
-  sheet.classList.remove('open');
+  animateControlsReflow(() => sheet.classList.remove('open'));
   sheet.style.transform = '';
   stopArrivalsRefresh();
   lastArrivalsData = null;
@@ -806,14 +809,13 @@ function setupSheet() {
     if (nearbyExpanded()) refreshNearbyArrivals();
   });
   document.getElementById('refresh-btn').addEventListener('click', () => {
-    if (selectedCode) { feedback('tap'); loadArrivals(selectedCode); }
+    if (selectedCode) loadArrivals(selectedCode);
   });
   document.getElementById('fav-stop-btn').addEventListener('click', () => {
     if (!selectedCode) return;
     toggleFav(favStops, 'favStops', selectedCode);
     const starred = favStops.has(selectedCode);
     document.getElementById('fav-stop-btn').classList.toggle('starred', starred);
-    if (starred) feedback('success');
     updateNearbyList();
   });
   document.getElementById('back-btn').addEventListener('click', () => {
@@ -827,7 +829,6 @@ function setupSheet() {
     const starBtn = e.target.closest('.star-btn');
     if (starBtn) {
       toggleFav(favServices, 'favServices', starBtn.dataset.favService);
-      if (favServices.has(starBtn.dataset.favService)) feedback('success');
       if (lastArrivalsData) renderArrivals(lastArrivalsData);
       return;
     }
@@ -1428,31 +1429,59 @@ function setupLocate() {
     goToUserLocation({ onError: () => toast("Couldn't get your location. Check location access and try again.") });
   });
 
+  // Drop the "active" (filled) state once the user drags away from their dot.
+  // dragstart only fires on manual pans, not our programmatic recenter.
+  map.on('dragstart', () => document.getElementById('locate-btn').classList.remove('located'));
+
   // Custom zoom buttons (replaces Leaflet's default control so they live in
   // the same glass stack as the theme/locate buttons).
   document.getElementById('zoom-in').addEventListener('click', () => map.zoomIn());
   document.getElementById('zoom-out').addEventListener('click', () => map.zoomOut());
 }
 
+// A pulsing "you are here" dot. Shared so locate always renders the same marker.
+function setUserMarker(lat, lng, popupText) {
+  if (userMarker) userMarker.remove();
+  userMarker = L.marker([lat, lng], {
+    keyboard: false,
+    icon: L.divIcon({
+      className: 'user-loc',
+      html: '<span class="user-loc-pulse"></span><span class="user-loc-dot"></span>',
+      iconSize: [18, 18],
+      iconAnchor: [9, 9],
+    }),
+  }).addTo(map).bindPopup(popupText);
+}
+
 // Center the map on the user's current position and drop a marker.
 function goToUserLocation({ onError } = {}) {
+  const btn = document.getElementById('locate-btn');
   if (!navigator.geolocation) { onError?.(); return; }
+  if (btn.classList.contains('locating')) return;   // ignore taps while acquiring
+
+  btn.classList.add('locating');
+  btn.setAttribute('aria-busy', 'true');
+  const done = () => { btn.classList.remove('locating'); btn.removeAttribute('aria-busy'); };
 
   navigator.geolocation.getCurrentPosition(
     ({ coords: { latitude: lat, longitude: lng } }) => {
-      if (userMarker) userMarker.remove();
-      userMarker = L.circleMarker([lat, lng], {
-        radius: 8,
-        fillColor: '#1565c0',
-        color: 'white',
-        weight: 2.5,
-        fillOpacity: 1,
-      }).addTo(map).bindPopup('You are here');
+      // Remember the grant so returning users can be located silently even on
+      // browsers that don't expose the permission state (e.g. iOS Safari).
+      try { localStorage.setItem(LOCATION_GRANTED_KEY, '1'); } catch { /* ignore */ }
+      done();
+      btn.classList.add('located');
+      setUserMarker(lat, lng, 'You are here');
       updateNearbyList();
       document.getElementById('nearby-sheet').classList.add('expanded');
       centerInVisibleArea(lat, lng, 17);
     },
-    () => onError?.()
+    () => {
+      // Permission revoked/denied — forget the grant so we stop auto-locating.
+      try { localStorage.removeItem(LOCATION_GRANTED_KEY); } catch { /* ignore */ }
+      done();
+      onError?.();
+    },
+    { enableHighAccuracy: true, timeout: 10000, maximumAge: 30000 }
   );
 }
 
@@ -1485,16 +1514,30 @@ async function goToPostalCode(postal) {
 
 // ── First-load location prompt ────────────────────────────────────────────────
 const LOCATION_PROMPT_KEY = 'locationPromptDismissed';
+const LOCATION_GRANTED_KEY = 'locationGranted';
 
 async function maybePromptForLocation() {
   if (!navigator.geolocation) return;
 
-  // If the browser already granted permission, locate silently — no popup.
+  // Query the permission state where we can. iOS Safari (and some others) don't
+  // support querying 'geolocation', so this throws — permState stays null.
+  let permState = null;
   try {
     const status = await navigator.permissions?.query({ name: 'geolocation' });
-    if (status?.state === 'granted') { goToUserLocation(); return; }
-    if (status?.state === 'denied') return;
-  } catch { /* Permissions API unsupported — fall through to the popup */ }
+    permState = status?.state ?? null;
+  } catch { /* Permissions API unsupported for geolocation */ }
+
+  // If the browser already granted permission, locate silently — no popup.
+  if (permState === 'granted') { goToUserLocation(); return; }
+  if (permState === 'denied') return;
+
+  // permState is null (can't query) or 'prompt'. When we can't query but the
+  // user granted location in a past session, the grant persists across reloads —
+  // locate silently instead of re-showing the prompt.
+  if (permState === null && localStorage.getItem(LOCATION_GRANTED_KEY)) {
+    goToUserLocation();
+    return;
+  }
 
   // Don't nag: skip if the user already dismissed the prompt before.
   if (localStorage.getItem(LOCATION_PROMPT_KEY)) return;

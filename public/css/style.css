@@ -320,6 +320,19 @@ html, body {
   to   { opacity: 1; transform: scale(1) translateY(0); }
 }
 
+/* ── Buy me a coffee button ────────────────────────────────────────── */
+/* Top-left, mirroring the right-hand control stack. Kept out of that stack
+   so the bottom sheet (which grows up from the bottom) never covers it. */
+#kopi-btn {
+  position: fixed;
+  /* Same top as #map-controls so it lines up with the theme toggle opposite. */
+  top: calc(max(12px, env(safe-area-inset-top)) + 62px);
+  left: 12px;
+  z-index: 400;
+  color: var(--text);
+  text-decoration: none;
+}
+
 #loading-link {
   font-size: 14px;
   color: var(--blue);
@@ -504,6 +517,37 @@ html, body {
 .map-btn.glass:active { background: var(--fill); }
 
 #locate-btn { color: var(--blue); }
+/* Filled "active" state once the map is centred on the user. */
+#locate-btn.located { background: var(--blue); color: #fff; }
+#locate-btn.located:active { background: var(--blue); }
+
+/* Spin the crosshair while acquiring a fix. */
+.map-btn.locating { cursor: progress; }
+@media (prefers-reduced-motion: no-preference) {
+  .map-btn.locating svg { animation: locate-spin .9s linear infinite; transform-origin: 50% 50%; }
+}
+@keyframes locate-spin { to { transform: rotate(360deg); } }
+
+/* Pulsing "you are here" location marker. */
+.user-loc { position: relative; background: none; border: 0; }
+.user-loc-dot {
+  position: absolute; inset: 0; margin: auto;
+  width: 16px; height: 16px; border-radius: 50%;
+  background: var(--blue); border: 2.5px solid #fff;
+  box-shadow: 0 1px 4px rgba(0,0,0,.4);
+}
+.user-loc-pulse {
+  position: absolute; inset: 0; margin: auto;
+  width: 16px; height: 16px; border-radius: 50%;
+  background: var(--blue);
+}
+@media (prefers-reduced-motion: no-preference) {
+  .user-loc-pulse { animation: user-loc-pulse 2s ease-out infinite; }
+}
+@keyframes user-loc-pulse {
+  0%   { transform: scale(1);   opacity: .45; }
+  100% { transform: scale(3.2); opacity: 0; }
+}
 
 .zoom-group {
   display: flex;
@@ -515,56 +559,6 @@ html, body {
 .zoom-group .map-btn { border-radius: 0; box-shadow: none; }
 .zoom-group .map-btn:active { background: var(--fill); }
 .zoom-group #zoom-in { border-bottom: 1px solid var(--glass-border); }
-
-/* ── Settings popover ────────────────────────────────────────────── */
-#settings-panel {
-  position: fixed;
-  right: 62px;
-  top: calc(max(12px, env(safe-area-inset-top)) + 250px);
-  z-index: 401;
-  border-radius: 14px;
-  box-shadow: var(--glass-shadow);
-  padding: 6px;
-  min-width: 156px;
-}
-#settings-panel.hidden { display: none; }
-
-.settings-row {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 16px;
-  padding: 8px 10px;
-  font-size: 13px;
-  font-weight: 500;
-  color: var(--text);
-}
-
-.toggle {
-  width: 40px;
-  height: 24px;
-  border-radius: 12px;
-  background: var(--fill-active);
-  border: none;
-  position: relative;
-  cursor: pointer;
-  flex-shrink: 0;
-  transition: background .2s;
-}
-.toggle::after {
-  content: "";
-  position: absolute;
-  top: 3px;
-  left: 3px;
-  width: 18px;
-  height: 18px;
-  border-radius: 50%;
-  background: #fff;
-  box-shadow: 0 1px 3px rgba(0,0,0,.3);
-  transition: transform .2s;
-}
-.toggle[aria-checked="true"] { background: var(--blue); }
-.toggle[aria-checked="true"]::after { transform: translateX(16px); }
 
 /* Show the icon for the mode you'd switch TO: moon in light, sun in dark. */
 #theme-toggle .icon-sun { display: none; }
@@ -1465,6 +1459,21 @@ html, body {
   }
 
   #bottom-sheet.open { transform: translateX(0); }
+
+  /* With a stop selected, the vertical stack would run down behind the
+     right-side arrivals panel. Move the controls up into a horizontal row on
+     the same level as the search bar (42px buttons centred against its 50px
+     height), clear of the panel. animateControlsReflow() FLIP-animates the
+     buttons between this layout and the default stack so they flow up and back. */
+  body:has(#bottom-sheet.open) #map-controls {
+    flex-direction: row;
+    top: calc(max(12px, env(safe-area-inset-top)) + 4px);
+  }
+  body:has(#bottom-sheet.open) .zoom-group { flex-direction: row; }
+  body:has(#bottom-sheet.open) .zoom-group #zoom-in {
+    border-bottom: none;
+    border-right: 1px solid var(--glass-border);
+  }
 
   #drag-handle { display: none; }
 
