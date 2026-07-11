@@ -145,7 +145,8 @@ app.get('/api/route', async (req, res) => {
   }
 });
 
-// ── Road-snapped route geometry (via OSRM public demo server) ──────────────
+// ── Road-snapped route geometry ────────────────────────────────────────────
+// Primary: Valhalla map-matching (bus costing). Fallback: OSRM route + de-spur.
 // Cache by `${service}:${direction}` → GeoJSON [lng,lat] coord array.
 const roadPathCache = new Map();
 const ROAD_PATH_TTL = 7 * 24 * 60 * 60 * 1000; // 7 days
@@ -172,9 +173,85 @@ async function fetchRoadPath(service, direction) {
 
   if (coords.length < 2) return null;
 
-  // OSRM accepts up to ~100 waypoints; chunk into overlapping windows.
+  // Ground-truth signals for sanity-checking a matched path: the LTA cumulative
+  // route distance (authoritative, in km) and the straight-line stop chain (a
+  // lower bound on the real road length).
+  const ltaKm = Number(routeRows[routeRows.length - 1].Distance) || 0;
+  let straightKm = 0;
+  for (let i = 1; i < coords.length; i++) straightKm += haversineMetres(coords[i - 1], coords[i]);
+  straightKm /= 1000;
+
+  // Primary: Valhalla map-matching with `bus` costing. Unlike a routing service,
+  // map-matching fits a road-following line to the stop sequence *without* forcing
+  // an exact visit to each stop, so it avoids the out-and-back "spur" artifacts
+  // and follows only bus-accessible roads. Its length tracks the real LTA route
+  // distance closely. If a match looks broken (dropped a chunk, endpoints far
+  // from the terminals — see isPlausiblePath), fall back to OSRM.
+  let line = null;
+  try {
+    const matched = await fetchValhallaPath(coords);
+    if (isPlausiblePath(matched, coords, straightKm, ltaKm)) line = matched;
+  } catch { /* fall through to OSRM */ }
+
+  if (!line) {
+    // Fallback: OSRM route service. It forces the line through every stop, which
+    // can produce spurs, so clean them. Loop / there-and-back services (first
+    // stop == last, e.g. 90/62/23) travel out and back by design, so only strip
+    // stop-free short retraces there; point-to-point routes may also drop a
+    // retrace that serves a single mis-snapped stop.
+    const osrm = await fetchOsrmPath(coords);
+    const first = routeRows[0].BusStopCode;
+    const last = routeRows[routeRows.length - 1].BusStopCode;
+    const isLoop = first === last
+      || haversineMetres(coords[0], coords[coords.length - 1]) < 400;
+    const opts = isLoop ? { MAX_STOPS: 0, MAX: 800 } : { MAX_STOPS: 1, MAX: 1500 };
+    const candidate = deSpur(osrm, coords, opts);
+    // Safety net: de-spurring must only smooth the line. If it added hairpins it
+    // removed something it shouldn't have, so keep the faithful OSRM line.
+    line = hairpinCount(candidate) > hairpinCount(osrm) ? osrm : candidate;
+  }
+
+  roadPathCache.set(key, { at: Date.now(), coords: line });
+  return line;
+}
+
+// Map-match a stop sequence to roads via Valhalla (`bus` costing). Returns the
+// road-following line as [[lng,lat], ...], or null. `map_snap` snaps each stop
+// to the nearest road and routes between the snapped points, so stops set back
+// from the road don't create detour spurs.
+const VALHALLA_URL = 'https://valhalla1.openstreetmap.de/trace_route';
+async function fetchValhallaPath(coords) {
+  const shape = coords.map(([lon, lat]) => ({ lat, lon }));
+  const body = JSON.stringify({ shape, costing: 'bus', shape_match: 'map_snap' });
+  const ctrl = new AbortController();
+  const timer = setTimeout(() => ctrl.abort(), 8000);
+  try {
+    const r = await fetch(VALHALLA_URL, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'User-Agent': 'sg-bus-arrival/1.0' },
+      body,
+      signal: ctrl.signal,
+    });
+    if (!r.ok) throw new Error(`Valhalla ${r.status}`);
+    const data = await r.json();
+    const line = [];
+    for (const leg of (data.trip?.legs || [])) {
+      const seg = decodePolyline6(leg.shape || '');
+      if (!seg.length) continue;
+      if (line.length) seg.shift(); // avoid duplicate join point
+      line.push(...seg);
+    }
+    return line.length ? line : null;
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+// Snap a stop sequence to roads via the OSRM route service (fallback path).
+// OSRM accepts up to ~100 waypoints, so chunk into overlapping windows.
+async function fetchOsrmPath(coords) {
   const CHUNK = 95;
-  const allLine = [];
+  const line = [];
   for (let i = 0; i < coords.length; i += CHUNK - 1) {
     const slice = coords.slice(i, i + CHUNK);
     if (slice.length < 2) break;
@@ -185,27 +262,42 @@ async function fetchRoadPath(service, direction) {
     const data = await r.json();
     const seg = data.routes?.[0]?.geometry?.coordinates;
     if (!seg?.length) throw new Error('OSRM empty geometry');
-    if (allLine.length) seg.shift(); // avoid duplicate join point
-    allLine.push(...seg);
+    if (line.length) seg.shift();
+    line.push(...seg);
   }
-  // Loop / there-and-back services (first stop == last stop, e.g. 90/62/23)
-  // legitimately travel out along a road and back, serving stops on both passes —
-  // geometry that looks like a spur. So for loops we only strip *stop-free* short
-  // retraces (clear artifacts) and never touch stop-serving legs; point-to-point
-  // routes may also drop retraces that serve a single mis-snapped stop.
-  const first = routeRows[0].BusStopCode;
-  const last = routeRows[routeRows.length - 1].BusStopCode;
-  const isLoop = first === last
-    || haversineMetres(coords[0], coords[coords.length - 1]) < 400;
-  const opts = isLoop ? { MAX_STOPS: 0, MAX: 800 } : { MAX_STOPS: 1, MAX: 1500 };
+  return line;
+}
 
-  const candidate = deSpur(allLine, coords, opts);
-  // Safety net: de-spurring should only ever make the line smoother. If it added
-  // hairpins, it spliced out something it shouldn't have (e.g. a stop-sparse leg
-  // of a real there-and-back), so discard it and keep the faithful OSRM line.
-  const cleaned = hairpinCount(candidate) > hairpinCount(allLine) ? allLine : candidate;
-  roadPathCache.set(key, { at: Date.now(), coords: cleaned });
-  return cleaned;
+// Decode a Valhalla-encoded polyline (precision 6) → [[lng,lat], ...].
+function decodePolyline6(str) {
+  let index = 0, lat = 0, lng = 0;
+  const coords = [];
+  while (index < str.length) {
+    let b, shift = 0, result = 0;
+    do { b = str.charCodeAt(index++) - 63; result |= (b & 0x1f) << shift; shift += 5; } while (b >= 0x20);
+    lat += (result & 1) ? ~(result >> 1) : (result >> 1);
+    shift = 0; result = 0;
+    do { b = str.charCodeAt(index++) - 63; result |= (b & 0x1f) << shift; shift += 5; } while (b >= 0x20);
+    lng += (result & 1) ? ~(result >> 1) : (result >> 1);
+    coords.push([lng / 1e6, lat / 1e6]);
+  }
+  return coords;
+}
+
+// A matched path is trusted only if it actually spans the whole route: endpoints
+// near the first/last stop, length at least ~85% of the straight-line stop chain
+// (a road path can't be much shorter), and — when LTA gives a route distance —
+// within a sane band of it. Catches matches that silently dropped a segment.
+function isPlausiblePath(line, coords, straightKm, ltaKm) {
+  if (!line || line.length < 2) return false;
+  if (haversineMetres(line[0], coords[0]) > 600) return false;
+  if (haversineMetres(line[line.length - 1], coords[coords.length - 1]) > 600) return false;
+  let km = 0;
+  for (let i = 1; i < line.length; i++) km += haversineMetres(line[i - 1], line[i]);
+  km /= 1000;
+  if (straightKm > 0 && km < 0.85 * straightKm) return false;
+  if (ltaKm > 0 && (km < 0.8 * ltaKm || km > 1.35 * ltaKm)) return false;
+  return true;
 }
 
 // Count sharp (~U-turn) direction reversals in a polyline, using bearings
