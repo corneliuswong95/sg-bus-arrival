@@ -1,0 +1,35 @@
+{
+  "id": "/",
+  "name": "SG Bus Arrival",
+  "short_name": "SG Bus",
+  "description": "Live Singapore bus arrival times, nearby stops, route maps and postal-code search.",
+  "start_url": "/?source=pwa",
+  "scope": "/",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#ffffff",
+  "theme_color": "#d32f2f",
+  "categories": ["travel", "navigation", "utilities"],
+  "lang": "en-SG",
+  "dir": "ltr",
+  "icons": [
+    {
+      "src": "/icons/icon-192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "/icons/icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "/icons/icon-maskable-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "maskable"
+    }
+  ]
+}
