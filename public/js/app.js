@@ -75,8 +75,19 @@ document.addEventListener('DOMContentLoaded', async () => {
   const autoLocating = maybeAutoLocate();
   await loadAllStops();
   updateNearbyList();
-  maybePromptForLocation(await autoLocating);
+  const didAutoLocate = await autoLocating;
+  maybePromptForLocation(didAutoLocate);
   scheduleInstallHint();
+
+  // maybeAutoLocate() may have centred on the saved spot while stops were still
+  // loading — at which point the nearby list was empty, so the sheet was short
+  // and centerInVisibleArea() aimed for the wrong visible area. Now that the
+  // list is populated (sheet at full height), re-centre so the user dot sits in
+  // the visible region above the panel.
+  if (didAutoLocate && userMarker) {
+    const { lat, lng } = userMarker.getLatLng();
+    centerInVisibleArea(lat, lng, 17);
+  }
 
   // Keep the "Near you" ETAs fresh while the sheet is open and the tab visible.
   setInterval(() => {
