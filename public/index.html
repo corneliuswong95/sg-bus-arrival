@@ -13,7 +13,7 @@
   <meta name="mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-status-bar-style" content="default">
-  <meta name="apple-mobile-web-app-title" content="SG Bus">
+  <meta name="apple-mobile-web-app-title" content="Buski">
   <meta name="theme-color" content="#d32f2f">
   <title>SG Bus Arrival</title>
 
@@ -256,6 +256,51 @@
         </div>
       </div>
       <div id="route-stops"></div>
+    </div>
+  </div>
+
+  <!-- iOS "Add to Home Screen" coach mark (shown only to iPhone/iPad Safari) -->
+  <div id="install-hint" class="hidden" role="dialog" aria-labelledby="install-hint-title">
+    <button id="install-hint-close" aria-label="Dismiss">
+      <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
+        <line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/>
+      </svg>
+    </button>
+    <div id="install-hint-body">
+      <svg class="buski-mascot" width="44" height="44" viewBox="0 0 96 96" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+        <rect x="16" y="40" width="4" height="11" rx="2" fill="var(--red)"/>
+        <rect x="76" y="40" width="4" height="11" rx="2" fill="var(--red)"/>
+        <rect x="18" y="20" width="60" height="50" rx="13" fill="var(--red)"/>
+        <rect x="24" y="29" width="21" height="17" rx="4.5" fill="#fff"/>
+        <rect x="51" y="29" width="21" height="17" rx="4.5" fill="#fff"/>
+        <circle cx="35" cy="38" r="3.4" fill="var(--red)"/>
+        <circle cx="62" cy="38" r="3.4" fill="var(--red)"/>
+        <path d="M40 56 q8 6.5 16 0" stroke="#fff" stroke-width="3" stroke-linecap="round" fill="none"/>
+        <rect x="27" y="67" width="11" height="8" rx="3" fill="#3a3a3a"/>
+        <rect x="58" y="67" width="11" height="8" rx="3" fill="#3a3a3a"/>
+      </svg>
+      <div id="install-hint-text">
+        <p id="install-hint-title">Like Buski? Add it as your app</p>
+        <p id="install-hint-steps">
+          Tap
+          <span class="ios-glyph" aria-label="the Share button">
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M12 15V4"/><path d="M8.5 7.5 12 4l3.5 3.5"/>
+              <path d="M7 11H6a2 2 0 0 0-2 2v6a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-6a2 2 0 0 0-2-2h-1"/>
+            </svg>
+          </span>
+          then <b>Add to Home Screen</b>
+          <span class="ios-glyph" aria-hidden="true">
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round">
+              <rect x="4" y="4" width="16" height="16" rx="4"/>
+              <line x1="12" y1="9" x2="12" y2="15"/><line x1="9" y1="12" x2="15" y2="12"/>
+            </svg>
+          </span>
+        </p>
+      </div>
+    </div>
+    <div id="install-hint-arrow" aria-hidden="true">
+      <svg width="26" height="26" viewBox="0 0 24 24" fill="currentColor"><path d="M12 22l-7-8h4.5V4h5v10H17z"/></svg>
     </div>
   </div>
 

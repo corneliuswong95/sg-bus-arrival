@@ -1,7 +1,7 @@
 {
   "id": "/",
-  "name": "SG Bus Arrival",
-  "short_name": "SG Bus",
+  "name": "Buski — Live SG Bus Arrivals",
+  "short_name": "Buski",
   "description": "Live Singapore bus arrival times, nearby stops, route maps and postal-code search.",
   "start_url": "/?source=pwa",
   "scope": "/",

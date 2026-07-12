@@ -76,6 +76,7 @@ document.addEventListener('DOMContentLoaded', async () => {
   await loadAllStops();
   updateNearbyList();
   maybePromptForLocation(await autoLocating);
+  scheduleInstallHint();
 
   // Keep the "Near you" ETAs fresh while the sheet is open and the tab visible.
   setInterval(() => {
@@ -1593,6 +1594,7 @@ function showLocationPrompt() {
   const close = () => {
     prompt.classList.add('hidden');
     try { localStorage.setItem(LOCATION_PROMPT_KEY, '1'); } catch { /* ignore */ }
+    retryInstallHintAfterPrompt();
   };
 
   document.getElementById('location-enable').onclick = () => {
@@ -1600,6 +1602,72 @@ function showLocationPrompt() {
     goToUserLocation();
   };
   document.getElementById('location-skip').onclick = close;
+}
+
+// ── iOS "Add to Home Screen" hint ─────────────────────────────────────────────
+// iOS Safari has no `beforeinstallprompt` event, so we can't offer a real
+// install button — instead we coach the user through the manual Share → Add to
+// Home Screen flow. Shown ~15s after load to iPhone/iPad Safari users who
+// aren't already in the installed app, then re-offered 3 days after each
+// dismissal (we can't detect a home-screen install from Safari, so we snooze
+// rather than suppress forever — see isStandalonePwa).
+const INSTALL_HINT_KEY = 'installHintDismissedAt';
+const INSTALL_HINT_DELAY_MS = 15_000;
+const INSTALL_HINT_SNOOZE_MS = 3 * 24 * 60 * 60 * 1000; // re-offer 3 days later
+let installHintReadyAt = 0;
+
+function isStandalonePwa() {
+  return window.matchMedia('(display-mode: standalone)').matches
+    || window.navigator.standalone === true;
+}
+
+// True only for Safari on iOS/iPadOS — the one browser where "Add to Home
+// Screen" exists (Chrome/Firefox on iOS report CriOS/FxiOS and can't do it).
+function isIosSafari() {
+  const ua = navigator.userAgent;
+  const iOS = /iphone|ipod|ipad/i.test(ua)
+    || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1); // iPadOS 13+
+  const otherIosBrowser = /crios|fxios|edgios|opios|mercury/i.test(ua);
+  return iOS && /safari/i.test(ua) && !otherIosBrowser;
+}
+
+function installHintEligible() {
+  if (isStandalonePwa() || !isIosSafari()) return false;
+  try {
+    const dismissedAt = Number(localStorage.getItem(INSTALL_HINT_KEY)) || 0;
+    return Date.now() - dismissedAt > INSTALL_HINT_SNOOZE_MS;
+  } catch { return true; }
+}
+
+// Reveal the hint — but never over the first-run location prompt (we retry
+// once that closes, via retryInstallHintAfterPrompt).
+function maybeShowInstallHint() {
+  if (!installHintEligible()) return;
+  const loc = document.getElementById('location-prompt');
+  if (loc && !loc.classList.contains('hidden')) return;
+  const hint = document.getElementById('install-hint');
+  if (!hint || !hint.classList.contains('hidden')) return; // missing or already shown
+  hint.classList.remove('hidden');
+  document.getElementById('install-hint-close').onclick = dismissInstallHint;
+}
+
+function dismissInstallHint() {
+  document.getElementById('install-hint')?.classList.add('hidden');
+  try { localStorage.setItem(INSTALL_HINT_KEY, String(Date.now())); } catch { /* ignore */ }
+}
+
+// Arm the delayed reveal from boot.
+function scheduleInstallHint() {
+  if (!installHintEligible()) return;
+  installHintReadyAt = Date.now() + INSTALL_HINT_DELAY_MS;
+  setTimeout(maybeShowInstallHint, INSTALL_HINT_DELAY_MS);
+}
+
+// If the location prompt was still open when the timer fired, the reveal was
+// skipped — retry once it closes (respecting the original ~15s from load).
+function retryInstallHintAfterPrompt() {
+  if (!installHintEligible()) return;
+  setTimeout(maybeShowInstallHint, Math.max(400, installHintReadyAt - Date.now()));
 }
 
 // ── Loading UI ───────────────────────────────────────────────────────────────

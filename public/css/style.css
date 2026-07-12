@@ -320,6 +320,99 @@ html, body {
   to   { opacity: 1; transform: scale(1) translateY(0); }
 }
 
+/* ── iOS "Add to Home Screen" hint ─────────────────────────────────── */
+#install-hint {
+  position: fixed;
+  left: 50%;
+  transform: translateX(-50%);
+  bottom: calc(env(safe-area-inset-bottom, 0px) + 16px);
+  z-index: 1600;
+  width: calc(100% - 24px);
+  max-width: 400px;
+  padding: 14px 42px 14px 14px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow-md);
+}
+#install-hint.hidden { display: none; }
+
+#install-hint-close {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  width: 26px;
+  height: 26px;
+  border: none;
+  border-radius: 50%;
+  background: var(--fill);
+  color: var(--text-muted);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+}
+#install-hint-close:active { background: var(--fill-active); }
+
+#install-hint-body {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+#install-hint-body .buski-mascot { flex: none; }
+/* Let the text column shrink so long lines wrap inside the card instead of
+   overflowing past its right edge (flexbox min-width:auto default). */
+#install-hint-text { min-width: 0; }
+
+#install-hint-title {
+  font-size: 15px;
+  font-weight: 700;
+  color: var(--text);
+  line-height: 1.25;
+  margin-bottom: 3px;
+}
+#install-hint-steps {
+  font-size: 13px;
+  color: var(--text-muted);
+  line-height: 1.6;
+}
+#install-hint-steps b { color: var(--text); font-weight: 600; }
+
+.ios-glyph {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  vertical-align: -4px;
+  width: 20px;
+  height: 20px;
+  margin: 0 1px;
+  border-radius: 5px;
+  background: var(--fill);
+  color: var(--red);
+}
+
+#install-hint-arrow {
+  position: absolute;
+  left: 50%;
+  bottom: -22px;
+  transform: translateX(-50%);
+  color: var(--red);
+  filter: drop-shadow(0 2px 3px rgba(0,0,0,.18));
+}
+
+@keyframes install-slide {
+  from { opacity: 0; transform: translateX(-50%) translateY(16px); }
+  to   { opacity: 1; transform: translateX(-50%) translateY(0); }
+}
+@keyframes install-bob {
+  0%, 100% { transform: translateX(-50%) translateY(0); }
+  50%      { transform: translateX(-50%) translateY(5px); }
+}
+@media (prefers-reduced-motion: no-preference) {
+  #install-hint { animation: install-slide .3s cubic-bezier(.2,.9,.3,1.2); }
+  #install-hint-arrow { animation: install-bob 1.4s ease-in-out infinite; }
+}
+
 /* ── Buy me a coffee button ────────────────────────────────────────── */
 /* Top-left, mirroring the right-hand control stack. Kept out of that stack
    so the bottom sheet (which grows up from the bottom) never covers it. */
