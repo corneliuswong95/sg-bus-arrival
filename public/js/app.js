@@ -1456,21 +1456,20 @@ function setUserMarker(lat, lng, popupText) {
   }).addTo(map).bindPopup(popupText);
 }
 
-// Center the map on the user's current position and drop a marker.
-function goToUserLocation({ onError } = {}) {
+// Center the map on the user's current position and drop a marker. `silent`
+// (used by the on-load auto-locate) skips the spinner so it can refine the
+// cached position in the background without any visible fuss.
+function goToUserLocation({ onError, silent = false } = {}) {
   const btn = document.getElementById('locate-btn');
   if (!navigator.geolocation) { onError?.(); return; }
   if (btn.classList.contains('locating')) return;   // ignore taps while acquiring
 
-  btn.classList.add('locating');
-  btn.setAttribute('aria-busy', 'true');
+  if (!silent) { btn.classList.add('locating'); btn.setAttribute('aria-busy', 'true'); }
   const done = () => { btn.classList.remove('locating'); btn.removeAttribute('aria-busy'); };
 
   navigator.geolocation.getCurrentPosition(
     ({ coords: { latitude: lat, longitude: lng } }) => {
-      // Remember the grant so returning users can be located silently even on
-      // browsers that don't expose the permission state (e.g. iOS Safari).
-      try { localStorage.setItem(LOCATION_GRANTED_KEY, '1'); } catch { /* ignore */ }
+      rememberLocation(lat, lng);   // grant + last-known spot, for next load
       done();
       btn.classList.add('located');
       setUserMarker(lat, lng, 'You are here');
@@ -1478,9 +1477,12 @@ function goToUserLocation({ onError } = {}) {
       document.getElementById('nearby-sheet').classList.add('expanded');
       centerInVisibleArea(lat, lng, 17);
     },
-    () => {
-      // Permission revoked/denied — forget the grant so we stop auto-locating.
-      try { localStorage.removeItem(LOCATION_GRANTED_KEY); } catch { /* ignore */ }
+    (err) => {
+      // Only forget the grant when permission is actually denied/revoked. A
+      // transient timeout or unavailable fix must NOT stop us auto-locating —
+      // Safari can't report the permission state, so the remembered grant is all
+      // we have, and wiping it on a timeout was why returning users lost it.
+      if (err && err.code === err.PERMISSION_DENIED) forgetLocation();
       done();
       onError?.();
     },
@@ -1518,37 +1520,62 @@ async function goToPostalCode(postal) {
 // ── First-load location ───────────────────────────────────────────────────────
 const LOCATION_PROMPT_KEY = 'locationPromptDismissed';
 const LOCATION_GRANTED_KEY = 'locationGranted';
+const LOCATION_LAST_KEY = 'lastLocation';
+
+function rememberLocation(lat, lng) {
+  try {
+    localStorage.setItem(LOCATION_GRANTED_KEY, '1');
+    localStorage.setItem(LOCATION_LAST_KEY, JSON.stringify({ lat, lng }));
+  } catch { /* ignore */ }
+}
+function forgetLocation() {
+  try {
+    localStorage.removeItem(LOCATION_GRANTED_KEY);
+    localStorage.removeItem(LOCATION_LAST_KEY);
+  } catch { /* ignore */ }
+}
+
+// Centre instantly on the last spot we saved, with no call to geolocation. This
+// is what makes first-load centering reliable everywhere — especially Safari,
+// which can't report the permission state and won't service a non-gesture
+// getCurrentPosition on load.
+function showLastKnownLocation() {
+  let last = null;
+  try { last = JSON.parse(localStorage.getItem(LOCATION_LAST_KEY) || 'null'); } catch { /* ignore */ }
+  if (!last || typeof last.lat !== 'number' || typeof last.lng !== 'number') return false;
+  document.getElementById('locate-btn').classList.add('located');
+  setUserMarker(last.lat, last.lng, 'You are here');
+  updateNearbyList();
+  document.getElementById('nearby-sheet').classList.add('expanded');
+  centerInVisibleArea(last.lat, last.lng, 17);
+  return true;
+}
 
 // If location is already allowed, centre on the user straight away — no popup.
-// Returns true when we auto-located, so the first-run prompt can be skipped.
+// Returns true when we handled location, so the first-run prompt is skipped.
 async function maybeAutoLocate() {
   if (!navigator.geolocation) return false;
 
-  // Query the permission state where we can. iOS Safari (and some others) don't
-  // support querying 'geolocation', so this throws — permState stays null.
+  // Query the permission state where we can. Safari (iOS + macOS) can't query
+  // 'geolocation' (the call throws), so permState stays null there — which is
+  // exactly why we also lean on the remembered grant + cached position below.
   let permState = null;
   try {
     const status = await navigator.permissions?.query({ name: 'geolocation' });
     permState = status?.state ?? null;
-  } catch { /* Permissions API unsupported for geolocation */ }
+  } catch { /* Permissions API can't report geolocation (Safari) */ }
 
-  // Browser confirms it's allowed → locate silently.
-  if (permState === 'granted') { goToUserLocation(); return true; }
+  if (permState === 'denied') { forgetLocation(); return false; }
 
-  // Revoked/denied → forget any stale grant and don't auto-locate.
-  if (permState === 'denied') {
-    try { localStorage.removeItem(LOCATION_GRANTED_KEY); } catch { /* ignore */ }
-    return false;
-  }
+  // "Already allowed" = the browser reports granted, or we remember a grant from
+  // a past successful locate (the only signal Safari gives us).
+  if (permState !== 'granted' && !localStorage.getItem(LOCATION_GRANTED_KEY)) return false;
 
-  // Can't query the state (null, e.g. iOS Safari): trust a grant remembered from
-  // a past session so those browsers still locate silently on load. A 'prompt'
-  // state means it isn't allowed yet, so we fall through to the first-run prompt.
-  if (permState === null && localStorage.getItem(LOCATION_GRANTED_KEY)) {
-    goToUserLocation();
-    return true;
-  }
-  return false;
+  // Show the saved spot immediately (reliable in every browser), then refine
+  // with a live fix in the background — which also refreshes the saved spot.
+  showLastKnownLocation();
+  goToUserLocation({ silent: true });
+  return true;
 }
 
 // First-run prompt — only shown to users we couldn't silently locate above.
