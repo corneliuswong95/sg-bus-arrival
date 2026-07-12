@@ -850,17 +850,25 @@ html, body {
   text-align: right;
 }
 
-/* Live ETA pills under each nearby stop */
+/* Live ETA pills under each nearby stop — a horizontal, swipeable scroller */
 .nearby-eta {
   display: flex;
   gap: 6px;
-  flex-wrap: wrap;
+  flex-wrap: nowrap;
+  overflow-x: auto;
+  overscroll-behavior-x: contain;
+  -webkit-overflow-scrolling: touch;
+  scroll-snap-type: x proximity;
+  scrollbar-width: none;               /* Firefox */
 }
+.nearby-eta::-webkit-scrollbar { display: none; } /* Chrome/Safari */
 .nearby-eta:empty { display: none; }
 .ne-pill {
   display: inline-flex;
   align-items: baseline;
   gap: 4px;
+  flex: 0 0 auto;                      /* keep full size; peek/cut-off hints scroll */
+  scroll-snap-align: start;
   background: var(--fill);
   border-radius: 8px;
   padding: 3px 8px;
@@ -870,6 +878,16 @@ html, body {
 .ne-pill.seats    .ne-min { color: var(--load-seats); }
 .ne-pill.standing .ne-min { color: var(--load-standing); }
 .ne-pill.limited  .ne-min { color: var(--load-limited); }
+/* Favourited service: sorts first (see nearbyEtaHtml) + a gold star marker. */
+.ne-pill.fav { box-shadow: inset 0 0 0 1px color-mix(in srgb, #f5a623 55%, transparent); }
+.ne-pill.fav::before {
+  content: "★";
+  align-self: center;
+  color: #f5a623;
+  font-size: 10px;
+  line-height: 1;
+  margin-right: -1px;
+}
 .ne-none { font-size: 12px; color: var(--text-muted); }
 
 .nearby-section-label {

@@ -1278,20 +1278,21 @@ function nearbyExpanded() {
   return document.getElementById('nearby-sheet').classList.contains('expanded');
 }
 
-// Compact ETA pills for a stop: up to 3 soonest services (number + minutes).
+// ETA pills for a stop (number + minutes), all services in a horizontal scroller.
 function nearbyEtaHtml(services) {
   if (!services) return '';
   const rows = services
     .filter(s => s.ServiceNo && s.NextBus?.EstimatedArrival)
     .map(s => ({ no: s.ServiceNo, mins: busMins(s.NextBus), load: s.NextBus.Load }))
     .filter(r => r.mins !== null)
-    .sort((a, b) => a.mins - b.mins)
-    .slice(0, 3);
+    // Favourited services sort first, then by soonest arrival within each group.
+    .sort((a, b) => favFirst(favServices, a.no, b.no) || (a.mins - b.mins));
   if (!rows.length) return '<span class="ne-none">No buses right now</span>';
   return rows.map(r => {
     const loadCls = { SEA: 'seats', SDA: 'standing', LSD: 'limited' }[r.load] || '';
+    const favCls = favServices.has(r.no) ? ' fav' : '';
     const t = r.mins <= 0 ? 'Arr' : `${r.mins}m`;
-    return `<span class="ne-pill ${loadCls}"><span class="ne-no">${escHtml(r.no)}</span><span class="ne-min">${t}</span></span>`;
+    return `<span class="ne-pill ${loadCls}${favCls}"><span class="ne-no">${escHtml(r.no)}</span><span class="ne-min">${t}</span></span>`;
   }).join('');
 }
 
