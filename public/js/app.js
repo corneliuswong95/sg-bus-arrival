@@ -845,6 +845,7 @@ function setupSheet() {
     if (starBtn) {
       toggleFav(favServices, 'favServices', starBtn.dataset.favService);
       if (lastArrivalsData) renderArrivals(lastArrivalsData);
+      updateNearbyList(); // re-sort the "Bus stops" ETA pills so the star reflects at once
       return;
     }
     const card = e.target.closest('.service-card');
