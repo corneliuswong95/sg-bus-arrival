@@ -70,9 +70,12 @@ document.addEventListener('DOMContentLoaded', async () => {
   setupSheet();
   setupNearbySheet();
   setupFilters();
+  // Kick auto-locate off ASAP (in parallel with stop loading) so first load
+  // lands on the user's area straight away when location is already allowed.
+  const autoLocating = maybeAutoLocate();
   await loadAllStops();
   updateNearbyList();
-  maybePromptForLocation();
+  maybePromptForLocation(await autoLocating);
 
   // Keep the "Near you" ETAs fresh while the sheet is open and the tab visible.
   setInterval(() => {
@@ -1512,12 +1515,14 @@ async function goToPostalCode(postal) {
   }
 }
 
-// ── First-load location prompt ────────────────────────────────────────────────
+// ── First-load location ───────────────────────────────────────────────────────
 const LOCATION_PROMPT_KEY = 'locationPromptDismissed';
 const LOCATION_GRANTED_KEY = 'locationGranted';
 
-async function maybePromptForLocation() {
-  if (!navigator.geolocation) return;
+// If location is already allowed, centre on the user straight away — no popup.
+// Returns true when we auto-located, so the first-run prompt can be skipped.
+async function maybeAutoLocate() {
+  if (!navigator.geolocation) return false;
 
   // Query the permission state where we can. iOS Safari (and some others) don't
   // support querying 'geolocation', so this throws — permState stays null.
@@ -1527,21 +1532,30 @@ async function maybePromptForLocation() {
     permState = status?.state ?? null;
   } catch { /* Permissions API unsupported for geolocation */ }
 
-  // If the browser already granted permission, locate silently — no popup.
-  if (permState === 'granted') { goToUserLocation(); return; }
-  if (permState === 'denied') return;
+  // Browser confirms it's allowed → locate silently.
+  if (permState === 'granted') { goToUserLocation(); return true; }
 
-  // permState is null (can't query) or 'prompt'. When we can't query but the
-  // user granted location in a past session, the grant persists across reloads —
-  // locate silently instead of re-showing the prompt.
-  if (permState === null && localStorage.getItem(LOCATION_GRANTED_KEY)) {
-    goToUserLocation();
-    return;
+  // Revoked/denied → forget any stale grant and don't auto-locate.
+  if (permState === 'denied') {
+    try { localStorage.removeItem(LOCATION_GRANTED_KEY); } catch { /* ignore */ }
+    return false;
   }
 
+  // Can't query the state (null, e.g. iOS Safari): trust a grant remembered from
+  // a past session so those browsers still locate silently on load. A 'prompt'
+  // state means it isn't allowed yet, so we fall through to the first-run prompt.
+  if (permState === null && localStorage.getItem(LOCATION_GRANTED_KEY)) {
+    goToUserLocation();
+    return true;
+  }
+  return false;
+}
+
+// First-run prompt — only shown to users we couldn't silently locate above.
+function maybePromptForLocation(alreadyAllowed) {
+  if (alreadyAllowed || !navigator.geolocation) return;
   // Don't nag: skip if the user already dismissed the prompt before.
   if (localStorage.getItem(LOCATION_PROMPT_KEY)) return;
-
   showLocationPrompt();
 }
 
