@@ -1608,12 +1608,12 @@ function showLocationPrompt() {
 // iOS Safari has no `beforeinstallprompt` event, so we can't offer a real
 // install button — instead we coach the user through the manual Share → Add to
 // Home Screen flow. Shown ~15s after load to iPhone/iPad Safari users who
-// aren't already in the installed app, then re-offered 3 days after each
+// aren't already in the installed app, then re-offered 1 day after each
 // dismissal (we can't detect a home-screen install from Safari, so we snooze
 // rather than suppress forever — see isStandalonePwa).
 const INSTALL_HINT_KEY = 'installHintDismissedAt';
 const INSTALL_HINT_DELAY_MS = 15_000;
-const INSTALL_HINT_SNOOZE_MS = 3 * 24 * 60 * 60 * 1000; // re-offer 3 days later
+const INSTALL_HINT_SNOOZE_MS = 24 * 60 * 60 * 1000; // re-offer 1 day later
 let installHintReadyAt = 0;
 
 function isStandalonePwa() {
