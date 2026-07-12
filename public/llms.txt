@@ -1,0 +1,26 @@
+# Buski — Live Singapore Bus Arrivals
+
+> Buski is a free, ad-free web app that shows real-time bus arrival times across Singapore on a clean, installable map. It ranks the bus stops nearest you, animates live buses on the map, draws road-snapped route overlays, and lets you search by postal code, bus-stop code, or stop name. Bus data comes from Singapore's Land Transport Authority (LTA) DataMall.
+
+Buski is a Progressive Web App: it works on any modern browser, installs to the home screen on iOS/Android and to the desktop on Chrome/Edge, and keeps the map shell available offline. There are no accounts, no ads, and no personal tracking — favourites are stored only on your own device.
+
+## Features
+- Live arrival times for every public bus stop in Singapore, auto-refreshing about every 30 seconds
+- Nearby stops ranked by walking distance from your current location
+- Real-time bus positions animated on the map for the selected service
+- Road-snapped route overlays with the full ordered stop list per service and direction
+- Search by 6-digit postal code, 5-digit bus-stop code, or stop name
+- Crowding indicator (seats available / standing / limited) and bus-type icons per arrival
+- Favourite stops and services, saved on-device and sorted to the top
+- Dark mode and a distraction-free, map-first interface
+
+## App
+- [Buski live map and arrivals](https://sg-bus-arrival-flame.vercel.app/): the single-page app — open it to see nearby stops and live bus timings
+
+## Data & credits
+- Bus stops, routes and live arrivals: Singapore Land Transport Authority (LTA) DataMall
+- Postal-code geocoding: OneMap, by the Singapore Land Authority (SLA)
+- Map tiles: OpenStreetMap contributors, CartoDB, and Stadia Maps
+
+## Support
+- Buy the developer a coffee: https://buymeacoffee.com/buski

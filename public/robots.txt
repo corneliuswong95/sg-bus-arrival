@@ -1,0 +1,37 @@
+# Buski — Live Singapore Bus Arrivals
+# https://sg-bus-arrival-flame.vercel.app/
+
+# Allow all crawlers to index the app
+User-agent: *
+Allow: /
+
+# Internal JSON APIs aren't pages — keep them out of the index and save crawl budget
+Disallow: /api/
+
+# AI assistants & answer engines — explicitly welcomed (so Buski can show up in
+# ChatGPT, Claude, Perplexity, Google AI answers, etc.)
+User-agent: GPTBot
+Allow: /
+
+User-agent: OAI-SearchBot
+Allow: /
+
+User-agent: ChatGPT-User
+Allow: /
+
+User-agent: ClaudeBot
+Allow: /
+
+User-agent: Claude-Web
+Allow: /
+
+User-agent: PerplexityBot
+Allow: /
+
+User-agent: Google-Extended
+Allow: /
+
+User-agent: Applebot-Extended
+Allow: /
+
+Sitemap: https://sg-bus-arrival-flame.vercel.app/sitemap.xml

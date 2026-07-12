@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="en-SG">
 <head>
   <meta charset="UTF-8">
   <!-- Apply saved theme before first paint to avoid a flash of the wrong mode -->
@@ -15,7 +15,16 @@
   <meta name="apple-mobile-web-app-status-bar-style" content="default">
   <meta name="apple-mobile-web-app-title" content="Buski">
   <meta name="theme-color" content="#d32f2f">
-  <title>SG Bus Arrival</title>
+  <title>Buski — Live Singapore Bus Arrival Times &amp; Map</title>
+
+  <!-- ── SEO ──────────────────────────────────────────────────────────────
+       Canonical domain is `sg-bus-arrival-flame.vercel.app`. To move to a
+       custom domain later, find-and-replace that string across public/. -->
+  <meta name="description" content="Check live Singapore bus arrival times on a clean, ad-free map. Find nearby bus stops, track buses in real time, and search by postal code or bus-stop code. Free &amp; installable.">
+  <meta name="application-name" content="Buski">
+  <meta name="author" content="Buski">
+  <meta name="robots" content="index, follow, max-image-preview:large">
+  <link rel="canonical" href="https://sg-bus-arrival-flame.vercel.app/">
 
   <!-- Open Graph / social link preview -->
   <meta property="og:type" content="website">
@@ -23,6 +32,7 @@
   <meta property="og:title" content="Buski — Live Singapore Bus Arrivals">
   <meta property="og:description" content="Real-time bus arrivals on a clean map. Nearby stops, live tracking, favourites — free &amp; ad-free.">
   <meta property="og:url" content="https://sg-bus-arrival-flame.vercel.app/">
+  <meta property="og:locale" content="en_SG">
   <meta property="og:image" content="https://sg-bus-arrival-flame.vercel.app/og.png">
   <meta property="og:image:type" content="image/png">
   <meta property="og:image:width" content="1200">
@@ -33,6 +43,43 @@
   <meta name="twitter:description" content="Real-time bus arrivals on a clean map. Free &amp; ad-free.">
   <meta name="twitter:image" content="https://sg-bus-arrival-flame.vercel.app/og.png">
 
+  <!-- Structured data: makes Buski eligible for rich results in Google & AI answers -->
+  <script type="application/ld+json">
+  {
+    "@context": "https://schema.org",
+    "@type": "WebApplication",
+    "name": "Buski",
+    "alternateName": "Buski — Live Singapore Bus Arrivals",
+    "url": "https://sg-bus-arrival-flame.vercel.app/",
+    "description": "Free, ad-free web app showing live Singapore bus arrival times on a clean map, with nearby stops, real-time bus tracking, route overlays and postal-code search.",
+    "applicationCategory": "TravelApplication",
+    "operatingSystem": "Web, iOS, Android",
+    "browserRequirements": "Requires JavaScript.",
+    "inLanguage": "en-SG",
+    "isAccessibleForFree": true,
+    "image": "https://sg-bus-arrival-flame.vercel.app/og.png",
+    "screenshot": "https://sg-bus-arrival-flame.vercel.app/og.png",
+    "offers": {
+      "@type": "Offer",
+      "price": "0",
+      "priceCurrency": "SGD"
+    },
+    "featureList": [
+      "Live bus arrival times for every stop in Singapore",
+      "Nearby bus stops ranked by distance",
+      "Real-time bus tracking on the map",
+      "Road-snapped route overlays and full stop lists",
+      "Search by postal code, bus-stop code or name",
+      "Favourite stops and services",
+      "Installable app with dark mode"
+    ],
+    "areaServed": {
+      "@type": "Country",
+      "name": "Singapore"
+    }
+  }
+  </script>
+
   <link rel="manifest" href="/manifest.webmanifest">
   <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 96 96'%3E%3Crect x='0' y='0' width='96' height='96' rx='20' fill='%23fff'/%3E%3Crect x='16' y='40' width='4' height='11' rx='2' fill='%23d32f2f'/%3E%3Crect x='76' y='40' width='4' height='11' rx='2' fill='%23d32f2f'/%3E%3Crect x='18' y='20' width='60' height='50' rx='13' fill='%23d32f2f'/%3E%3Crect x='24' y='29' width='21' height='17' rx='4.5' fill='%23fff'/%3E%3Crect x='51' y='29' width='21' height='17' rx='4.5' fill='%23fff'/%3E%3Ccircle cx='35' cy='38' r='3.4' fill='%23d32f2f'/%3E%3Ccircle cx='62' cy='38' r='3.4' fill='%23d32f2f'/%3E%3Cpath d='M40 56 q8 6.5 16 0' stroke='%23fff' stroke-width='3' stroke-linecap='round' fill='none'/%3E%3Crect x='27' y='67' width='11' height='8' rx='3' fill='%233a3a3a'/%3E%3Crect x='58' y='67' width='11' height='8' rx='3' fill='%233a3a3a'/%3E%3C/svg%3E">
   <link rel="apple-touch-icon" href="/icons/apple-touch-icon.png">
@@ -40,6 +87,19 @@
   <link rel="stylesheet" href="/css/style.css">
 </head>
 <body>
+
+  <!-- Crawlable page heading (visually hidden — an SPA otherwise has no indexable
+       text). Describes the app for search engines and screen readers alike. -->
+  <h1 class="sr-only">Buski — Live Singapore bus arrival times on a map</h1>
+
+  <!-- Fallback for crawlers / browsers without JavaScript -->
+  <noscript>
+    <p style="padding:16px;font:16px/1.5 system-ui,sans-serif;">
+      Buski shows live bus arrival times across Singapore on an interactive map,
+      with nearby stops, real-time bus tracking and postal-code search.
+      Please enable JavaScript to use the app.
+    </p>
+  </noscript>
 
   <!-- Loading / Error overlay -->
   <div id="loading-overlay">
