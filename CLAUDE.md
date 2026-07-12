@@ -57,6 +57,14 @@ One file organized into labeled `// ── Section ──` blocks (State, Favour
 - **Personality**: a Buski bus mascot (`mascotSvg`) appears only in loading/empty/first-run states; recoverable errors use a `toast()` instead of `alert()`. All new animations sit behind `@media (prefers-reduced-motion: no-preference)`.
 - **Glass controls**: the search pill and the top-right control stack (`#map-controls`: theme, custom zoom +/−, locate) use the `.glass` utility (`backdrop-filter`) over the map. Zoom is hand-rolled (`map.zoomIn/Out`), not Leaflet's default control.
 
+### PWA (installable app)
+
+The app is an installable Progressive Web App — "Add to Home Screen" on iOS/Android and installable on desktop Chrome/Edge. No framework or build step; the pieces are plain static files served by `express.static`.
+
+- **`public/manifest.webmanifest`** — name, `theme_color` (`#d32f2f`, matches the `<meta name="theme-color">`), `background_color` (`#fff`), `display: standalone`, and three PNG icons (192/512 `any` + 512 `maskable`). Linked from `index.html`.
+- **`public/sw.js`** — service worker, registered from an inline script at the bottom of `index.html`. Caching is strategy-per-route: app shell (html/css/js/icons) is precached + stale-while-revalidate; Leaflet CDN is SWR; map tiles are cache-first with a size cap (`TILE_CACHE_MAX`); `/api/stops`, `/api/route`, `/api/road-path` are network-first with a cache fallback (offline map data); and **live endpoints (`/api/arrivals*`, `/api/postal`, `/api/log-search`) are network-only and never cached** — stale arrival times would be misleading. Bump `CACHE_VERSION` when the precached shell changes.
+- **Icons** — generated from the Buski bus mark by `scripts/generate-icons.js` (`npm run icons`, uses `sharp`, a devDependency). There's no build step, so the generated PNGs in `public/icons/` are **committed** and served statically. Re-run the script if the mark changes. `apple-touch-icon` points at the PNG (iOS ignores SVG apple-touch-icons).
+
 ### Theming (dark mode)
 
 - All colors are CSS custom properties in `:root` (`public/css/style.css`). Dark values are defined **twice**: under `@media (prefers-color-scheme: dark) :root:not([data-theme="light"])` (auto/system) and under `:root[data-theme="dark"]` (forced). When adding a color, add a variable and its dark override rather than hardcoding — hardcoded light colors break dark mode.
