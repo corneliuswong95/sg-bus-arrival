@@ -1108,6 +1108,16 @@ function refreshActiveCard() {
   });
 }
 
+// Single emoji hint for a bus stop name, or '' if none applies.
+function stopEmoji(name) {
+  if (/\bstn\b/i.test(name))                                          return '🚇';
+  if (/\b(sch|sec|pri|jc|poly|ite|univ|university|college|inst)\b/i.test(name)) return '🎓';
+  if (/\b(hosp|medical\s+cent)/i.test(name))                          return '🏥';
+  if (/\b(airport|changi\s+airport)/i.test(name))                     return '✈️';
+  if (/\b(park|gdns|nature\s+res|reserv)\b/i.test(name))              return '🌿';
+  return '';
+}
+
 // Populate the route panel with the full ordered stop list for a service,
 // marking stops relative to the currently selected stop.
 function renderRouteStops(chosen, serviceNo) {
@@ -1139,11 +1149,15 @@ function renderRouteStops(chosen, serviceNo) {
     // the current/passed stops since their distance delta is ≤ 0.
     const mins = busEtaMins(km(i) - baseKm);
     const etaHtml = mins ? `<span class="rs-eta">~${mins}m</span>` : '';
+    const emoji = stopEmoji(name);
+    const nameHtml = emoji
+      ? `${emoji} ${escHtml(name)}`
+      : escHtml(name);
     return `
       <div class="route-stop ${cls}" data-code="${escHtml(r.BusStopCode)}">
         <span class="rs-track"><span class="rs-dot"></span></span>
         <span class="rs-info">
-          <span class="rs-name">${escHtml(name)}</span>
+          <span class="rs-name">${nameHtml}</span>
           <span class="rs-road">${isHere ? '<span class="rs-here">You are here</span>' : escHtml(road)}</span>
         </span>
         <span class="rs-right">${etaHtml}<span class="rs-code">${escHtml(r.BusStopCode)}</span></span>
