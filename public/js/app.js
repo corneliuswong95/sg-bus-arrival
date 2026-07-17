@@ -235,6 +235,16 @@ function updateMarkersInView() {
   const zoom = map.getZoom();
   const hint = document.getElementById('zoom-hint');
 
+  // While a route is displayed, show only that route's own stop dots (drawn as
+  // part of currentRouteLayer) — hide the general stop markers so the route
+  // reads clearly and other stops don't clutter the line.
+  if (routeServiceNo) {
+    stopMarkers.forEach(m => m.remove());
+    stopMarkers.clear();
+    hint.classList.add('hidden');
+    return;
+  }
+
   if (zoom < 15) {
     stopMarkers.forEach(m => m.remove());
     stopMarkers.clear();
@@ -695,8 +705,8 @@ function makeBusIcon(serviceNo, loadCls) {
   return L.divIcon({
     className: '',
     html: `<div class="live-bus ${loadCls}"><span class="live-bus-no">${escHtml(serviceNo)}</span></div>`,
-    iconSize: [30, 22],
-    iconAnchor: [15, 11],
+    iconSize: [36, 24],
+    iconAnchor: [18, 12],
   });
 }
 
@@ -1026,6 +1036,9 @@ async function showRoute(serviceNo) {
     currentRouteLayer = L.layerGroup([line, ...dots]).addTo(map);
     routeServiceNo = serviceNo;
 
+    // Hide the general stop markers so only this route's stops show.
+    updateMarkersInView();
+
     // Drop live vehicle markers for this service right away.
     updateLiveBuses(lastArrivalsData);
 
@@ -1073,6 +1086,8 @@ function clearRoute() {
   document.getElementById('clear-route-btn').classList.add('hidden');
   exitRouteMode();
   refreshActiveCard();
+  // Route cleared → restore the general in-viewport stop markers.
+  updateMarkersInView();
 }
 
 // Drop/move a prominent marker on the stop tapped in the route list, with an
@@ -1114,7 +1129,6 @@ function stopEmoji(name) {
   if (/\b(sch|sec|pri|jc|poly|ite|univ|university|college|inst)\b/i.test(name)) return '🎓';
   if (/\b(hosp|medical\s+cent)/i.test(name))                          return '🏥';
   if (/\b(airport|changi\s+airport)/i.test(name))                     return '✈️';
-  if (/\b(park|gdns|nature\s+res|reserv)\b/i.test(name))              return '🌿';
   return '';
 }
 

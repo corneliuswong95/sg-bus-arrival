@@ -1476,18 +1476,37 @@ html, body {
 }
 
 /* Live vehicle markers (buses gliding toward the stop on the active route) */
+/* Live vehicle marker shaped like a little bus: a rounded body carrying the
+   route number (like a bus's destination sign) with a wheel at each corner. */
 .live-bus {
-  min-width: 26px;
-  height: 20px;
+  position: relative;
+  min-width: 28px;
+  height: 17px;
   padding: 0 5px;
-  border-radius: 10px;
+  border-radius: 6px 6px 4px 4px;
   background: var(--red);
-  border: 2px solid #fff;
-  box-shadow: 0 1px 5px rgba(0,0,0,.4);
+  border: 1.5px solid #fff;
+  box-shadow: 0 1px 4px rgba(0,0,0,.4);
   display: flex;
   align-items: center;
   justify-content: center;
 }
+/* Two wheels peeking out below, anchored to each corner so they track the
+   body width for longer service numbers. */
+.live-bus::before,
+.live-bus::after {
+  content: "";
+  position: absolute;
+  bottom: -2.5px;
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: #1a1a1a;
+  border: 1px solid #fff;
+  box-sizing: border-box;
+}
+.live-bus::before { left: 4px; }
+.live-bus::after  { right: 4px; }
 .live-bus.seats    { background: #2e7d32; }
 .live-bus.standing { background: #ef8f00; }
 .live-bus.limited  { background: #c62828; }
