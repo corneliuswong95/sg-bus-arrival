@@ -9,6 +9,10 @@ let arrivalsTickTimer = null;
 let lastArrivalsData = null;
 const ARRIVALS_REFRESH_MS = 30_000; // LTA data updates ~every 20-30s
 const ARRIVALS_TICK_MS = 10_000;    // local re-render so "Xm" counts down
+// Route journey-time estimate: LTA gives no travel time, so we approximate from
+// the cumulative stop distance. ~20 km/h is a rough SG bus average incl. dwell;
+// results are always shown with a "~". Tune here.
+const AVG_BUS_SPEED_KMH = 20;
 let openedFromNearby = false;
 let currentFilter = 'all'; // arrivals filter: all | saved | arriving
 let nearbyShowCount = 10;
@@ -501,6 +505,14 @@ function svcLiveHtml(svc) {
 function busMins(bus) {
   if (!bus?.EstimatedArrival) return null;
   return Math.round((new Date(bus.EstimatedArrival) - Date.now()) / 60_000);
+}
+
+// Rough journey minutes to cover `km` at the average bus speed (see
+// AVG_BUS_SPEED_KMH). Returns 0 for non-positive/invalid distances so callers
+// can simply skip stops that aren't downstream. Rounds up to at least 1 min.
+function busEtaMins(km) {
+  if (!(km > 0)) return 0;
+  return Math.max(1, Math.round((km / AVG_BUS_SPEED_KMH) * 60));
 }
 
 // Crowding as a 3-segment bar + colour-coded word from the LTA Load field
@@ -1102,10 +1114,18 @@ function renderRouteStops(chosen, serviceNo) {
   const destCode = chosen[chosen.length - 1]?.BusStopCode;
   const dest = stopByCode.get(destCode)?.Description || '';
   document.getElementById('route-panel-title').textContent = `Bus ${serviceNo}`;
-  document.getElementById('route-panel-sub').textContent =
-    `${chosen.length} stops` + (dest ? ` · towards ${dest}` : '');
 
   const curIdx = chosen.findIndex(r => r.BusStopCode === selectedCode);
+
+  // Estimated journey time from the current stop (or the origin if it isn't on
+  // this direction) onward, derived from LTA's cumulative stop distance.
+  const km = i => Number(chosen[i]?.Distance) || 0;
+  const baseKm = curIdx >= 0 ? km(curIdx) : 0;
+  const totalMins = busEtaMins(km(chosen.length - 1) - baseKm);
+
+  const timeStr = totalMins ? ` · ~${totalMins} min${curIdx >= 0 ? ' left' : ''}` : '';
+  document.getElementById('route-panel-sub').textContent =
+    `${chosen.length} stops${timeStr}` + (dest ? ` · towards ${dest}` : '');
 
   document.getElementById('route-stops').innerHTML = chosen.map((r, i) => {
     const s = stopByCode.get(r.BusStopCode);
@@ -1115,6 +1135,10 @@ function renderRouteStops(chosen, serviceNo) {
     if (curIdx >= 0 && i < curIdx) cls = 'passed';
     else if (i === curIdx) cls = 'current';
     const isHere = i === curIdx;
+    // Downstream stops show "~Xm" from here; busEtaMins returns 0 (skipped) for
+    // the current/passed stops since their distance delta is ≤ 0.
+    const mins = busEtaMins(km(i) - baseKm);
+    const etaHtml = mins ? `<span class="rs-eta">~${mins}m</span>` : '';
     return `
       <div class="route-stop ${cls}" data-code="${escHtml(r.BusStopCode)}">
         <span class="rs-track"><span class="rs-dot"></span></span>
@@ -1122,7 +1146,7 @@ function renderRouteStops(chosen, serviceNo) {
           <span class="rs-name">${escHtml(name)}</span>
           <span class="rs-road">${isHere ? '<span class="rs-here">You are here</span>' : escHtml(road)}</span>
         </span>
-        <span class="rs-code">${escHtml(r.BusStopCode)}</span>
+        <span class="rs-right">${etaHtml}<span class="rs-code">${escHtml(r.BusStopCode)}</span></span>
       </div>`;
   }).join('');
 
