@@ -360,6 +360,7 @@ function tickArrivals() {
     const live = card.querySelector('.svc-live');
     if (svc && live) live.innerHTML = svcLiveHtml(svc);
   });
+  renderNextBoard((lastArrivalsData.Services || []).filter(s => s.ServiceNo));
 }
 
 // Center the map on the selected stop. On mobile, offset upward so the marker
@@ -444,6 +445,7 @@ function renderArrivals(data) {
 
   const services = applyServiceFilter(all);
   updateFilterChips(all);
+  renderNextBoard(all);   // hero "next bus" board reflects the whole stop
 
   if (!services.length) {
     list.innerHTML = emptyServicesHtml(all.length);
@@ -462,6 +464,48 @@ function renderArrivals(data) {
         <button class="star-btn${favServices.has(svc.ServiceNo) ? ' starred' : ''}" data-fav-service="${escHtml(svc.ServiceNo)}" aria-label="Favourite bus ${escHtml(svc.ServiceNo)}">${starSvg()}</button>
       </div>`;
   }).join('');
+}
+
+// Hero "next bus" board — the amber LED departure-board readout at the top of the
+// sheet. Shows the single soonest-arriving service for the stop.
+function renderNextBoard(services) {
+  const board = document.getElementById('next-board');
+  if (!board) return;
+
+  let best = null, bestMins = Infinity;
+  for (const s of services || []) {
+    const m = busMins(s.NextBus);
+    if (m === null) continue;
+    const mm = Math.max(0, m);
+    if (mm < bestMins) { bestMins = mm; best = s; }
+  }
+  if (!best) { board.classList.add('hidden'); return; }
+  board.classList.remove('hidden');
+
+  const nb = best.NextBus;
+  const mins = busMins(nb);
+  const live = !!nb && Number(nb.Monitored) === 1;
+  const dest = stopByCode.get(nb?.DestinationCode)?.Description || '';
+
+  board.querySelector('.nb-svc').textContent = best.ServiceNo;
+  board.querySelector('.nb-dest-name').textContent = dest;
+  board.querySelector('.nb-dest').classList.toggle('hidden', !dest);
+
+  const numEl = board.querySelector('.nb-num');
+  const unitEl = board.querySelector('.nb-unit');
+  if (mins <= 0) { board.classList.add('now'); numEl.textContent = 'Arr'; unitEl.textContent = ''; }
+  else { board.classList.remove('now'); numEl.textContent = mins; unitEl.textContent = 'min'; }
+
+  board.querySelector('.nb-live').classList.toggle('hidden', !live);
+
+  const crowd = board.querySelector('.nb-crowd');
+  const cm = { SEA: ['seats', 'Seats available'], SDA: ['standing', 'Standing only'], LSD: ['limited', 'Nearly full'] }[nb?.Load];
+  if (cm) { crowd.className = `nb-crowd ${cm[0]}`; crowd.querySelector('.nb-crowd-word').textContent = cm[1]; }
+  else { crowd.className = 'nb-crowd hidden'; }
+
+  const rest = [busMins(best.NextBus2), busMins(best.NextBus3)]
+    .filter(m => m !== null).map(m => (m <= 0 ? 'Arr' : m));
+  board.querySelector('.nb-then').textContent = rest.length ? `then ${rest.join(' · ')} min` : '';
 }
 
 // Filter the sorted service list by the active chip.
@@ -485,30 +529,32 @@ function svcLiveHtml(svc) {
   const mins = busMins(nb);
   const live = !!nb && Number(nb.Monitored) === 1;
 
-  let hero;
-  if (mins === null)     hero = '<span class="eta-none">—</span>';
-  else if (mins <= 0)    hero = '<span class="eta-now">Arr</span>';
-  else                   hero = `<span class="eta-num">${mins}</span><span class="eta-unit">min</span>`;
+  // LED time chip (the amber readout) — the live/scheduled/arriving states
+  let chip;
+  if (mins === null)   chip = `<div class="led-chip none"><span class="led-n">—</span></div>`;
+  else if (mins <= 0)  chip = `<div class="led-chip now"><span class="led-n">Arr</span></div>`;
+  else if (live)       chip = `<div class="led-chip"><span class="led-n">${mins}</span><span class="led-u">min</span></div>`;
+  else                 chip = `<div class="led-chip sched"><span class="led-n">${mins}</span><span class="led-u">min</span></div>`;
+
   const pulse = (mins !== null && mins > 0 && live) ? '<span class="pdot" title="Live tracking"></span>' : '';
   const typeIcon = busTypeIcon(nb?.Type);
 
   const rest = [busMins(svc.NextBus2), busMins(svc.NextBus3)]
     .filter(m => m !== null)
     .map(m => (m <= 0 ? 'Arr' : m));
-  let subText = '';
-  if (mins === null)      subText = 'no timing available';
-  else if (rest.length)   subText = `then ${rest.join(' · ')} min`;
-  const subHtml = subText ? `<div class="eta-sub">${subText}</div>` : '';
+  let then = '';
+  if (mins === null)     then = 'no timing';
+  else if (rest.length)  then = `then <b>${rest.join(' · ')}</b> min`;
 
   return `
-    <div class="svc-live-main">
-      <div class="svc-eta${live ? '' : ' scheduled'}">
-        <div class="eta-hero">${hero}${pulse}${typeIcon ? `<span class="type-icon">${typeIcon}</span>` : ''}</div>
-        ${subHtml}
-      </div>
-      <div class="svc-side">${crowdHtml(nb?.Load)}</div>
+    <div class="svc-mid">
+      <div class="svc-dest"><span class="dest-arrow">▸</span>${dest ? escHtml(dest) : ''}${typeIcon}</div>
+      ${crowdHtml(nb?.Load)}
     </div>
-    ${dest ? `<div class="svc-dest-row"><span class="svc-dest">→ ${escHtml(dest)}</span></div>` : ''}`;
+    <div class="svc-r">
+      <div class="svc-r-line">${pulse}${chip}</div>
+      ${then ? `<div class="svc-then">${then}</div>` : ''}
+    </div>`;
 }
 
 // Whole minutes until a bus arrives, or null when there's no live estimate.
@@ -571,23 +617,15 @@ function busChip(bus) {
 // SVG icon for bus body type (double-decker / bendy). Single-deck = no icon.
 function busTypeIcon(type) {
   if (type === 'DD') {
-    // Head-on front view: a destination blind + two stacked windscreen rows read
-    // as "two decks" far more clearly than a side silhouette at this small size.
-    return `<svg class="type-icon" width="17.5" height="20" viewBox="0 0 21 24" xmlns="http://www.w3.org/2000/svg" aria-label="Double-decker">
-      <!-- wheels (drawn first so they peek out below the body) -->
-      <circle cx="6"  cy="20.6" r="2" fill="currentColor"/>
-      <circle cx="15" cy="20.6" r="2" fill="currentColor"/>
-      <!-- body -->
-      <rect x="3" y="1.4" width="15" height="19" rx="2.8" fill="currentColor"/>
-      <!-- destination blind -->
-      <rect x="5" y="2.7" width="11" height="1.5" rx="0.5" fill="#fff" opacity="0.9"/>
-      <!-- upper deck window -->
-      <rect x="4.4" y="4.9"  width="12.2" height="4.5" rx="1.1" fill="#fff"/>
-      <!-- lower deck windscreen -->
-      <rect x="4.4" y="10.9" width="12.2" height="4.3" rx="1.1" fill="#fff"/>
-      <!-- headlights -->
-      <circle cx="6.2"  cy="17.8" r="1.15" fill="#fff"/>
-      <circle cx="14.8" cy="17.8" r="1.15" fill="#fff"/>
+    // Clean single-deck bus side silhouette (design decision: the marker should
+    // read as a bus without looking like a double-decker). Window cut-outs use
+    // the card background so they read as glass.
+    return `<svg class="type-icon" width="26" height="13" viewBox="0 0 32 16" fill="currentColor" xmlns="http://www.w3.org/2000/svg" aria-label="Bus">
+      <rect x="1" y="2" width="27" height="9.5" rx="3"/>
+      <rect x="3.5" y="4" width="6" height="3.4" rx="1" fill="var(--surface)"/>
+      <rect x="11" y="4" width="6" height="3.4" rx="1" fill="var(--surface)"/>
+      <rect x="18.5" y="4" width="6" height="3.4" rx="1" fill="var(--surface)"/>
+      <circle cx="8" cy="12.6" r="2.1"/><circle cx="21" cy="12.6" r="2.1"/>
     </svg>`;
   }
   if (type === 'BD') {
@@ -618,16 +656,13 @@ function busTypeIcon(type) {
   return '';
 }
 
-// Operator "logo" — colored pill with the brand short-name
+// Operator tag — neutral outlined chip (kept out of the amber/orange system so it
+// doesn't compete with the live data).
 function operatorBadge(op) {
-  const map = {
-    SBST: { label: 'SBS',   bg: '#6a1b9a' },
-    SMRT: { label: 'SMRT',  bg: '#d71921' },
-    TTS:  { label: 'Tower', bg: '#2e7d32' },
-    GAS:  { label: 'Go',    bg: '#f57c00' },
-  };
-  const style = map[op] || { label: op || '', bg: '#757575' };
-  return `<span class="svc-operator" style="background:${style.bg}">${escHtml(style.label)}</span>`;
+  const map = { SBST: 'SBS', SMRT: 'SMRT', TTS: 'Tower', GAS: 'Go' };
+  const label = map[op] || op || '';
+  if (!label) return '';
+  return `<span class="svc-operator">${escHtml(label)}</span>`;
 }
 
 // ── Filters (All / Saved / Arriving chips) ────────────────────────────────────
@@ -811,6 +846,7 @@ function openSheet(stop) {
   document.getElementById('stop-road').textContent = stop.RoadName;
   document.getElementById('fav-stop-btn').classList.toggle('starred', favStops.has(stop.BusStopCode));
   document.getElementById('services-list').innerHTML = '';
+  document.getElementById('next-board').classList.add('hidden');
   document.getElementById('updated-label').textContent = '—';
   currentFilter = 'all';
   syncFilterChips();
@@ -1298,7 +1334,7 @@ function updateNearbyList() {
   const restItems = visible.filter(({ s }) => !favStops.has(s.BusStopCode));
 
   const itemHtml = ({ s, d }) => `
-    <div class="nearby-item" data-code="${s.BusStopCode}">
+    <div class="nearby-item${favStops.has(s.BusStopCode) ? ' fav-stop' : ''}" data-code="${s.BusStopCode}">
       <div class="ni-top">
         <span class="nearby-code">${s.BusStopCode}</span>
         <div class="ni-main">
