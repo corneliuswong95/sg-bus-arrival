@@ -617,15 +617,23 @@ function busChip(bus) {
 // SVG icon for bus body type (double-decker / bendy). Single-deck = no icon.
 function busTypeIcon(type) {
   if (type === 'DD') {
-    // Clean single-deck bus side silhouette (design decision: the marker should
-    // read as a bus without looking like a double-decker). Window cut-outs use
-    // the card background so they read as glass.
-    return `<svg class="type-icon" width="26" height="13" viewBox="0 0 32 16" fill="currentColor" xmlns="http://www.w3.org/2000/svg" aria-label="Bus">
-      <rect x="1" y="2" width="27" height="9.5" rx="3"/>
-      <rect x="3.5" y="4" width="6" height="3.4" rx="1" fill="var(--surface)"/>
-      <rect x="11" y="4" width="6" height="3.4" rx="1" fill="var(--surface)"/>
-      <rect x="18.5" y="4" width="6" height="3.4" rx="1" fill="var(--surface)"/>
-      <circle cx="8" cy="12.6" r="2.1"/><circle cx="21" cy="12.6" r="2.1"/>
+    // Head-on front view: a destination blind + two stacked windscreen rows read
+    // as "two decks" far more clearly than a side silhouette at this small size.
+    return `<svg class="type-icon" width="17.5" height="20" viewBox="0 0 21 24" xmlns="http://www.w3.org/2000/svg" aria-label="Double-decker">
+      <!-- wheels (drawn first so they peek out below the body) -->
+      <circle cx="6"  cy="20.6" r="2" fill="currentColor"/>
+      <circle cx="15" cy="20.6" r="2" fill="currentColor"/>
+      <!-- body -->
+      <rect x="3" y="1.4" width="15" height="19" rx="2.8" fill="currentColor"/>
+      <!-- destination blind -->
+      <rect x="5" y="2.7" width="11" height="1.5" rx="0.5" fill="var(--surface)" opacity="0.9"/>
+      <!-- upper deck window -->
+      <rect x="4.4" y="4.9"  width="12.2" height="4.5" rx="1.1" fill="var(--surface)"/>
+      <!-- lower deck windscreen -->
+      <rect x="4.4" y="10.9" width="12.2" height="4.3" rx="1.1" fill="var(--surface)"/>
+      <!-- headlights -->
+      <circle cx="6.2"  cy="17.8" r="1.15" fill="var(--surface)"/>
+      <circle cx="14.8" cy="17.8" r="1.15" fill="var(--surface)"/>
     </svg>`;
   }
   if (type === 'BD') {
