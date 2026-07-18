@@ -231,16 +231,30 @@
         <circle cx="12" cy="12" r="9" stroke-dasharray="2 4"/>
       </svg>
     </button>
+
+    <!-- Buy me a coffee — part of the control stack (brand chip took the top-left) -->
+    <a id="kopi-btn" class="map-btn glass" href="https://buymeacoffee.com/buski" target="_blank" rel="noopener" aria-label="Buy me a coffee">
+      <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M17 8h1.5a3 3 0 0 1 0 6H17"/>
+        <path d="M4 8h13v6.5A4.5 4.5 0 0 1 12.5 19h-4A4.5 4.5 0 0 1 4 14.5V8Z"/>
+        <path d="M7 2.5v2M10.5 2.5v2M14 2.5v2"/>
+      </svg>
+    </a>
   </div>
 
-  <!-- Buy me a coffee — top-left so the bottom sheet never covers it -->
-  <a id="kopi-btn" class="map-btn glass" href="https://buymeacoffee.com/buski" target="_blank" rel="noopener" aria-label="Buy me a coffee">
-    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-      <path d="M17 8h1.5a3 3 0 0 1 0 6H17"/>
-      <path d="M4 8h13v6.5A4.5 4.5 0 0 1 12.5 19h-4A4.5 4.5 0 0 1 4 14.5V8Z"/>
-      <path d="M7 2.5v2M10.5 2.5v2M14 2.5v2"/>
-    </svg>
-  </a>
+  <!-- Brand chip (top-left) — blind-bus mark + dot-matrix wordmark -->
+  <div id="brand" class="glass" aria-label="Buski">
+    <span class="mk">
+      <svg width="22" height="22" viewBox="0 0 96 96" aria-hidden="true">
+        <rect x="20" y="15" width="56" height="66" rx="16" fill="var(--ic-body)" stroke="var(--neon)" stroke-width="3"/>
+        <rect x="27" y="22" width="42" height="14" rx="3" fill="var(--ic-blind)"/>
+        <circle cx="33" cy="29" r="2.3" fill="var(--ic-dot)"/><circle cx="40" cy="29" r="2.3" fill="var(--ic-dot)"/><circle cx="47" cy="29" r="2.3" fill="var(--ic-dot)"/><circle cx="54" cy="29" r="2.3" fill="var(--ic-dot)"/><circle cx="61" cy="29" r="2.3" fill="var(--ic-dot)"/>
+        <rect x="27" y="42" width="42" height="15" rx="4" fill="var(--ic-screen)"/>
+        <circle cx="33" cy="71" r="4" fill="var(--ic-hl)"/><circle cx="63" cy="71" r="4" fill="var(--ic-hl)"/>
+      </svg>
+    </span>
+    <span class="wm">buski</span>
+  </div>
 
   <!-- Nearby stops sheet (always-visible peek, drag up to expand) -->
   <div id="nearby-sheet">
