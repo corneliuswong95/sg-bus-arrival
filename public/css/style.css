@@ -350,9 +350,22 @@ html, body {
 .nearby-road { display:block; font-size:12px; color:var(--ink-3); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
 .nearby-distance { flex-shrink:0; font-family:'Doto'; font-size:13px; font-weight:700; color:var(--ink-2); white-space:nowrap; text-align:right; }
 .fav-mark { color:var(--fav); text-shadow:0 0 1px rgba(0,0,0,.45), 0 0 8px var(--fav-glow); }
-/* Favourited stop row — a quiet yellow "saved" spine (the section header + star
-   already convey saved; a glow per card would overload an all-favourites list) */
-.nearby-item.fav-stop { border-left:3px solid var(--fav); }
+/* Favourites — ONE glowing "saved" tray. Glowing each card individually turns a
+   stack of favourites into a bleeding yellow haze; framing the whole group once
+   keeps the mock's yellow glow but stays crisp for any number of favourites. */
+.fav-group {
+  border:1px solid var(--fav); border-radius:16px;
+  background:color-mix(in srgb, var(--fav) 7%, var(--surface));
+  box-shadow:0 0 22px var(--fav-glow);
+  padding:2px 10px; margin-bottom:10px;
+}
+.fav-group .nearby-item {
+  background:transparent; border:none; border-radius:0; margin-bottom:0; padding:12px 4px;
+}
+.fav-group .nearby-item:active { transform:none; }
+.fav-group .nearby-item + .nearby-item {
+  border-top:1px solid color-mix(in srgb, var(--fav) 22%, transparent);
+}
 
 /* Live ETA pills — LED cells in a horizontal scroller */
 .nearby-eta {

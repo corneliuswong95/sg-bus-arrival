@@ -1349,7 +1349,7 @@ function updateNearbyList() {
   let html = '';
   if (favItems.length) {
     html += `<div class="nearby-section-label">Favourites</div>`;
-    html += favItems.map(itemHtml).join('');
+    html += `<div class="fav-group">${favItems.map(itemHtml).join('')}</div>`;
   }
   if (restItems.length) {
     if (favItems.length) html += `<div class="nearby-section-label">Nearby stops</div>`;
