@@ -382,10 +382,10 @@ html, body {
 .ne-no { font-family:'Archivo'; font-stretch:96%; font-size:12px; font-weight:800; color:var(--panel-svc-text); }
 .ne-min { font-family:'Doto'; font-size:13px; font-weight:800; color:var(--panel-num); text-shadow:0 0 7px var(--panel-num-glow); }
 .ne-pill.seats    .ne-min { color:var(--seat); text-shadow:0 0 7px color-mix(in srgb,var(--seat) 45%,transparent); }
-/* favourited service pill — solid bright-yellow fill */
-.ne-pill.fav { background:var(--fav); border-color:var(--fav); box-shadow:0 0 12px var(--fav-glow); }
-.ne-pill.fav .ne-no, .ne-pill.fav .ne-min { color:var(--fav-text); text-shadow:none; }
-.ne-pill.fav::before { content:"★"; align-self:center; color:var(--fav-text); font-size:10px; margin-right:1px; }
+/* favourited service pill — yellow rim + star (not a solid fill, so it doesn't
+   overload the yellow "saved" tray); keeps the normal LED cell background */
+.ne-pill.fav { border-color:var(--fav); box-shadow:0 0 10px var(--fav-glow); }
+.ne-pill.fav::before { content:"★"; align-self:center; color:var(--fav); font-size:10px; margin-right:1px; text-shadow:0 0 6px var(--fav-glow); }
 .ne-none { font-size:12px; color:var(--ink-3); }
 
 .nearby-section-label {
