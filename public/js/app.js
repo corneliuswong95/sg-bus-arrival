@@ -186,7 +186,7 @@ function applyThemeSideEffects() {
   const theme = effectiveTheme();
   setTiles(theme);
   const meta = document.querySelector('meta[name="theme-color"]');
-  if (meta) meta.setAttribute('content', theme === 'dark' ? '#121212' : '#d32f2f');
+  if (meta) meta.setAttribute('content', theme === 'dark' ? '#0c0705' : '#fcf7ef');
 }
 
 function setupTheme() {

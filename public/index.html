@@ -4,18 +4,21 @@
   <meta charset="UTF-8">
   <!-- Apply saved theme before first paint to avoid a flash of the wrong mode -->
   <script>
+    // Default to dark ("Amber overdrive"); a saved choice wins. Applied before
+    // first paint to avoid a flash.
     try {
       var t = localStorage.getItem('theme');
-      if (t === 'dark' || t === 'light') document.documentElement.setAttribute('data-theme', t);
-    } catch (e) {}
+      if (t !== 'dark' && t !== 'light') t = 'dark';
+      document.documentElement.setAttribute('data-theme', t);
+    } catch (e) { document.documentElement.setAttribute('data-theme', 'dark'); }
   </script>
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
   <meta name="mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-status-bar-style" content="default">
   <meta name="apple-mobile-web-app-title" content="Buski">
-  <meta name="theme-color" content="#fcf7ef" media="(prefers-color-scheme: light)">
-  <meta name="theme-color" content="#0c0705" media="(prefers-color-scheme: dark)">
+  <!-- default dark; kept in sync with the toggled theme by applyThemeSideEffects() -->
+  <meta name="theme-color" content="#0c0705">
   <title>Buski — Live Singapore Bus Arrival Times &amp; Map</title>
 
   <!-- ── SEO ──────────────────────────────────────────────────────────────
