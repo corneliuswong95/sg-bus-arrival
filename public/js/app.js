@@ -186,7 +186,7 @@ function applyThemeSideEffects() {
   const theme = effectiveTheme();
   setTiles(theme);
   const meta = document.querySelector('meta[name="theme-color"]');
-  if (meta) meta.setAttribute('content', theme === 'dark' ? '#121212' : '#d32f2f');
+  if (meta) meta.setAttribute('content', theme === 'dark' ? '#0c0705' : '#fcf7ef');
 }
 
 function setupTheme() {
@@ -360,6 +360,7 @@ function tickArrivals() {
     const live = card.querySelector('.svc-live');
     if (svc && live) live.innerHTML = svcLiveHtml(svc);
   });
+  renderNextBoard((lastArrivalsData.Services || []).filter(s => s.ServiceNo));
 }
 
 // Center the map on the selected stop. On mobile, offset upward so the marker
@@ -444,6 +445,7 @@ function renderArrivals(data) {
 
   const services = applyServiceFilter(all);
   updateFilterChips(all);
+  renderNextBoard(all);   // hero "next bus" board reflects the whole stop
 
   if (!services.length) {
     list.innerHTML = emptyServicesHtml(all.length);
@@ -461,6 +463,40 @@ function renderArrivals(data) {
         <div class="svc-live">${svcLiveHtml(svc)}</div>
         <button class="star-btn${favServices.has(svc.ServiceNo) ? ' starred' : ''}" data-fav-service="${escHtml(svc.ServiceNo)}" aria-label="Favourite bus ${escHtml(svc.ServiceNo)}">${starSvg()}</button>
       </div>`;
+  }).join('');
+}
+
+// "Your buses" board — your favourited services at this stop, soonest first, as
+// an amber LED readout. Shown only when the stop has ≥1 favourited service; the
+// whole board hides otherwise (no generic fallback).
+const NEXT_BOARD_MAX = 4;
+function renderNextBoard(services) {
+  const board = document.getElementById('next-board');
+  if (!board) return;
+  const rowsEl = board.querySelector('.nb-rows');
+
+  const favs = (services || [])
+    .filter(s => s.ServiceNo && favServices.has(s.ServiceNo) && busMins(s.NextBus) !== null)
+    .map(s => ({ s, mins: busMins(s.NextBus) }))
+    .sort((a, b) => Math.max(0, a.mins) - Math.max(0, b.mins))
+    .slice(0, NEXT_BOARD_MAX);
+
+  if (!favs.length) { board.classList.add('hidden'); rowsEl.innerHTML = ''; return; }
+  board.classList.remove('hidden');
+
+  const anyLive = favs.some(({ s }) => s.NextBus && Number(s.NextBus.Monitored) === 1);
+  board.querySelector('.nb-live').classList.toggle('hidden', !anyLive);
+
+  rowsEl.innerHTML = favs.map(({ s, mins }) => {
+    const dest = stopByCode.get(s.NextBus?.DestinationCode)?.Description || '';
+    const eta = mins <= 0
+      ? `<span class="nb-reta now">Arr</span>`
+      : `<span class="nb-reta">${mins}<span class="nb-runit">min</span></span>`;
+    return `<div class="nb-row">
+      <span class="nb-rt">${escHtml(s.ServiceNo)}</span>
+      <span class="nb-rdest">${dest ? `<span class="nb-arrow">▸</span>${escHtml(dest)}` : ''}</span>
+      ${eta}
+    </div>`;
   }).join('');
 }
 
@@ -485,30 +521,32 @@ function svcLiveHtml(svc) {
   const mins = busMins(nb);
   const live = !!nb && Number(nb.Monitored) === 1;
 
-  let hero;
-  if (mins === null)     hero = '<span class="eta-none">—</span>';
-  else if (mins <= 0)    hero = '<span class="eta-now">Arr</span>';
-  else                   hero = `<span class="eta-num">${mins}</span><span class="eta-unit">min</span>`;
+  // LED time chip (the amber readout) — the live/scheduled/arriving states
+  let chip;
+  if (mins === null)   chip = `<div class="led-chip none"><span class="led-n">—</span></div>`;
+  else if (mins <= 0)  chip = `<div class="led-chip now"><span class="led-n">Arr</span></div>`;
+  else if (live)       chip = `<div class="led-chip"><span class="led-n">${mins}</span><span class="led-u">min</span></div>`;
+  else                 chip = `<div class="led-chip sched"><span class="led-n">${mins}</span><span class="led-u">min</span></div>`;
+
   const pulse = (mins !== null && mins > 0 && live) ? '<span class="pdot" title="Live tracking"></span>' : '';
   const typeIcon = busTypeIcon(nb?.Type);
 
   const rest = [busMins(svc.NextBus2), busMins(svc.NextBus3)]
     .filter(m => m !== null)
     .map(m => (m <= 0 ? 'Arr' : m));
-  let subText = '';
-  if (mins === null)      subText = 'no timing available';
-  else if (rest.length)   subText = `then ${rest.join(' · ')} min`;
-  const subHtml = subText ? `<div class="eta-sub">${subText}</div>` : '';
+  let then = '';
+  if (mins === null)     then = 'no timing';
+  else if (rest.length)  then = `then <b>${rest.join(' · ')}</b> min`;
 
   return `
-    <div class="svc-live-main">
-      <div class="svc-eta${live ? '' : ' scheduled'}">
-        <div class="eta-hero">${hero}${pulse}${typeIcon ? `<span class="type-icon">${typeIcon}</span>` : ''}</div>
-        ${subHtml}
-      </div>
-      <div class="svc-side">${crowdHtml(nb?.Load)}</div>
+    <div class="svc-mid">
+      <div class="svc-dest"><span class="dest-arrow">▸</span>${dest ? escHtml(dest) : ''}${typeIcon}</div>
+      ${crowdHtml(nb?.Load)}
     </div>
-    ${dest ? `<div class="svc-dest-row"><span class="svc-dest">→ ${escHtml(dest)}</span></div>` : ''}`;
+    <div class="svc-r">
+      <div class="svc-r-line">${pulse}${chip}</div>
+      ${then ? `<div class="svc-then">${then}</div>` : ''}
+    </div>`;
 }
 
 // Whole minutes until a bus arrives, or null when there's no live estimate.
@@ -580,14 +618,14 @@ function busTypeIcon(type) {
       <!-- body -->
       <rect x="3" y="1.4" width="15" height="19" rx="2.8" fill="currentColor"/>
       <!-- destination blind -->
-      <rect x="5" y="2.7" width="11" height="1.5" rx="0.5" fill="#fff" opacity="0.9"/>
+      <rect x="5" y="2.7" width="11" height="1.5" rx="0.5" fill="var(--surface)" opacity="0.9"/>
       <!-- upper deck window -->
-      <rect x="4.4" y="4.9"  width="12.2" height="4.5" rx="1.1" fill="#fff"/>
+      <rect x="4.4" y="4.9"  width="12.2" height="4.5" rx="1.1" fill="var(--surface)"/>
       <!-- lower deck windscreen -->
-      <rect x="4.4" y="10.9" width="12.2" height="4.3" rx="1.1" fill="#fff"/>
+      <rect x="4.4" y="10.9" width="12.2" height="4.3" rx="1.1" fill="var(--surface)"/>
       <!-- headlights -->
-      <circle cx="6.2"  cy="17.8" r="1.15" fill="#fff"/>
-      <circle cx="14.8" cy="17.8" r="1.15" fill="#fff"/>
+      <circle cx="6.2"  cy="17.8" r="1.15" fill="var(--surface)"/>
+      <circle cx="14.8" cy="17.8" r="1.15" fill="var(--surface)"/>
     </svg>`;
   }
   if (type === 'BD') {
@@ -618,16 +656,13 @@ function busTypeIcon(type) {
   return '';
 }
 
-// Operator "logo" — colored pill with the brand short-name
+// Operator tag — neutral outlined chip (kept out of the amber/orange system so it
+// doesn't compete with the live data).
 function operatorBadge(op) {
-  const map = {
-    SBST: { label: 'SBS',   bg: '#6a1b9a' },
-    SMRT: { label: 'SMRT',  bg: '#d71921' },
-    TTS:  { label: 'Tower', bg: '#2e7d32' },
-    GAS:  { label: 'Go',    bg: '#f57c00' },
-  };
-  const style = map[op] || { label: op || '', bg: '#757575' };
-  return `<span class="svc-operator" style="background:${style.bg}">${escHtml(style.label)}</span>`;
+  const map = { SBST: 'SBS', SMRT: 'SMRT', TTS: 'Tower', GAS: 'Go' };
+  const label = map[op] || op || '';
+  if (!label) return '';
+  return `<span class="svc-operator">${escHtml(label)}</span>`;
 }
 
 // ── Filters (All / Saved / Arriving chips) ────────────────────────────────────
@@ -811,6 +846,7 @@ function openSheet(stop) {
   document.getElementById('stop-road').textContent = stop.RoadName;
   document.getElementById('fav-stop-btn').classList.toggle('starred', favStops.has(stop.BusStopCode));
   document.getElementById('services-list').innerHTML = '';
+  document.getElementById('next-board').classList.add('hidden');
   document.getElementById('updated-label').textContent = '—';
   currentFilter = 'all';
   syncFilterChips();
@@ -942,21 +978,32 @@ function setupSheet() {
     startY = null;
   }
 
-  handle.addEventListener('touchstart', e => dragStart(e.touches[0].clientY), { passive: true });
-  handle.addEventListener('touchmove',  e => dragMove(e.touches[0].clientY),  { passive: true });
-  handle.addEventListener('touchend',   e => dragEnd(e.changedTouches[0].clientY));
-
-  handle.addEventListener('mousedown', e => {
-    e.preventDefault();
-    dragStart(e.clientY);
-    const onMove = ev => dragMove(ev.clientY);
-    const onUp = ev => {
-      dragEnd(ev.clientY);
-      window.removeEventListener('mousemove', onMove);
-      window.removeEventListener('mouseup', onUp);
-    };
-    window.addEventListener('mousemove', onMove);
-    window.addEventListener('mouseup', onUp);
+  // Drag from the whole top of the sheet — the handle, the stop header, AND the
+  // "Your buses" board — so users can grab the sheet's content and pull it up to
+  // full (~90vh), not just the thin 40px handle. The scrollable services list is
+  // deliberately NOT a drag zone (it scrolls); taps on buttons are left alone.
+  const draggableTarget = t => !t.closest('button, a, input');
+  function attachSheetDrag(el) {
+    el.addEventListener('touchstart', e => { if (draggableTarget(e.target)) dragStart(e.touches[0].clientY); }, { passive: true });
+    el.addEventListener('touchmove',  e => dragMove(e.touches[0].clientY),  { passive: true });
+    el.addEventListener('touchend',   e => dragEnd(e.changedTouches[0].clientY));
+    el.addEventListener('mousedown', e => {
+      if (window.innerWidth >= 600 || !draggableTarget(e.target)) return; // desktop = side panel
+      e.preventDefault();
+      dragStart(e.clientY);
+      const onMove = ev => dragMove(ev.clientY);
+      const onUp = ev => {
+        dragEnd(ev.clientY);
+        window.removeEventListener('mousemove', onMove);
+        window.removeEventListener('mouseup', onUp);
+      };
+      window.addEventListener('mousemove', onMove);
+      window.addEventListener('mouseup', onUp);
+    });
+  }
+  ['drag-handle', 'sheet-header', 'next-board'].forEach(id => {
+    const el = document.getElementById(id);
+    if (el) attachSheetDrag(el);
   });
 }
 
@@ -1298,7 +1345,7 @@ function updateNearbyList() {
   const restItems = visible.filter(({ s }) => !favStops.has(s.BusStopCode));
 
   const itemHtml = ({ s, d }) => `
-    <div class="nearby-item" data-code="${s.BusStopCode}">
+    <div class="nearby-item${favStops.has(s.BusStopCode) ? ' fav-stop' : ''}" data-code="${s.BusStopCode}">
       <div class="ni-top">
         <span class="nearby-code">${s.BusStopCode}</span>
         <div class="ni-main">
@@ -1313,7 +1360,7 @@ function updateNearbyList() {
   let html = '';
   if (favItems.length) {
     html += `<div class="nearby-section-label">Favourites</div>`;
-    html += favItems.map(itemHtml).join('');
+    html += `<div class="fav-group">${favItems.map(itemHtml).join('')}</div>`;
   }
   if (restItems.length) {
     if (favItems.length) html += `<div class="nearby-section-label">Nearby stops</div>`;
