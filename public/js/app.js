@@ -978,21 +978,32 @@ function setupSheet() {
     startY = null;
   }
 
-  handle.addEventListener('touchstart', e => dragStart(e.touches[0].clientY), { passive: true });
-  handle.addEventListener('touchmove',  e => dragMove(e.touches[0].clientY),  { passive: true });
-  handle.addEventListener('touchend',   e => dragEnd(e.changedTouches[0].clientY));
-
-  handle.addEventListener('mousedown', e => {
-    e.preventDefault();
-    dragStart(e.clientY);
-    const onMove = ev => dragMove(ev.clientY);
-    const onUp = ev => {
-      dragEnd(ev.clientY);
-      window.removeEventListener('mousemove', onMove);
-      window.removeEventListener('mouseup', onUp);
-    };
-    window.addEventListener('mousemove', onMove);
-    window.addEventListener('mouseup', onUp);
+  // Drag from the whole top of the sheet — the handle, the stop header, AND the
+  // "Your buses" board — so users can grab the sheet's content and pull it up to
+  // full (~90vh), not just the thin 40px handle. The scrollable services list is
+  // deliberately NOT a drag zone (it scrolls); taps on buttons are left alone.
+  const draggableTarget = t => !t.closest('button, a, input');
+  function attachSheetDrag(el) {
+    el.addEventListener('touchstart', e => { if (draggableTarget(e.target)) dragStart(e.touches[0].clientY); }, { passive: true });
+    el.addEventListener('touchmove',  e => dragMove(e.touches[0].clientY),  { passive: true });
+    el.addEventListener('touchend',   e => dragEnd(e.changedTouches[0].clientY));
+    el.addEventListener('mousedown', e => {
+      if (window.innerWidth >= 600 || !draggableTarget(e.target)) return; // desktop = side panel
+      e.preventDefault();
+      dragStart(e.clientY);
+      const onMove = ev => dragMove(ev.clientY);
+      const onUp = ev => {
+        dragEnd(ev.clientY);
+        window.removeEventListener('mousemove', onMove);
+        window.removeEventListener('mouseup', onUp);
+      };
+      window.addEventListener('mousemove', onMove);
+      window.addEventListener('mouseup', onUp);
+    });
+  }
+  ['drag-handle', 'sheet-header', 'next-board'].forEach(id => {
+    const el = document.getElementById(id);
+    if (el) attachSheetDrag(el);
   });
 }
 
