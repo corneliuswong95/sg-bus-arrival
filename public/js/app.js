@@ -466,46 +466,38 @@ function renderArrivals(data) {
   }).join('');
 }
 
-// Hero "next bus" board — the amber LED departure-board readout at the top of the
-// sheet. Shows the single soonest-arriving service for the stop.
+// "Your buses" board — your favourited services at this stop, soonest first, as
+// an amber LED readout. Shown only when the stop has ≥1 favourited service; the
+// whole board hides otherwise (no generic fallback).
+const NEXT_BOARD_MAX = 4;
 function renderNextBoard(services) {
   const board = document.getElementById('next-board');
   if (!board) return;
+  const rowsEl = board.querySelector('.nb-rows');
 
-  let best = null, bestMins = Infinity;
-  for (const s of services || []) {
-    const m = busMins(s.NextBus);
-    if (m === null) continue;
-    const mm = Math.max(0, m);
-    if (mm < bestMins) { bestMins = mm; best = s; }
-  }
-  if (!best) { board.classList.add('hidden'); return; }
+  const favs = (services || [])
+    .filter(s => s.ServiceNo && favServices.has(s.ServiceNo) && busMins(s.NextBus) !== null)
+    .map(s => ({ s, mins: busMins(s.NextBus) }))
+    .sort((a, b) => Math.max(0, a.mins) - Math.max(0, b.mins))
+    .slice(0, NEXT_BOARD_MAX);
+
+  if (!favs.length) { board.classList.add('hidden'); rowsEl.innerHTML = ''; return; }
   board.classList.remove('hidden');
 
-  const nb = best.NextBus;
-  const mins = busMins(nb);
-  const live = !!nb && Number(nb.Monitored) === 1;
-  const dest = stopByCode.get(nb?.DestinationCode)?.Description || '';
+  const anyLive = favs.some(({ s }) => s.NextBus && Number(s.NextBus.Monitored) === 1);
+  board.querySelector('.nb-live').classList.toggle('hidden', !anyLive);
 
-  board.querySelector('.nb-svc').textContent = best.ServiceNo;
-  board.querySelector('.nb-dest-name').textContent = dest;
-  board.querySelector('.nb-dest').classList.toggle('hidden', !dest);
-
-  const numEl = board.querySelector('.nb-num');
-  const unitEl = board.querySelector('.nb-unit');
-  if (mins <= 0) { board.classList.add('now'); numEl.textContent = 'Arr'; unitEl.textContent = ''; }
-  else { board.classList.remove('now'); numEl.textContent = mins; unitEl.textContent = 'min'; }
-
-  board.querySelector('.nb-live').classList.toggle('hidden', !live);
-
-  const crowd = board.querySelector('.nb-crowd');
-  const cm = { SEA: ['seats', 'Seats available'], SDA: ['standing', 'Standing only'], LSD: ['limited', 'Nearly full'] }[nb?.Load];
-  if (cm) { crowd.className = `nb-crowd ${cm[0]}`; crowd.querySelector('.nb-crowd-word').textContent = cm[1]; }
-  else { crowd.className = 'nb-crowd hidden'; }
-
-  const rest = [busMins(best.NextBus2), busMins(best.NextBus3)]
-    .filter(m => m !== null).map(m => (m <= 0 ? 'Arr' : m));
-  board.querySelector('.nb-then').textContent = rest.length ? `then ${rest.join(' · ')} min` : '';
+  rowsEl.innerHTML = favs.map(({ s, mins }) => {
+    const dest = stopByCode.get(s.NextBus?.DestinationCode)?.Description || '';
+    const eta = mins <= 0
+      ? `<span class="nb-reta now">Arr</span>`
+      : `<span class="nb-reta">${mins}<span class="nb-runit">min</span></span>`;
+    return `<div class="nb-row">
+      <span class="nb-rt">${escHtml(s.ServiceNo)}</span>
+      <span class="nb-rdest">${dest ? `<span class="nb-arrow">▸</span>${escHtml(dest)}` : ''}</span>
+      ${eta}
+    </div>`;
+  }).join('');
 }
 
 // Filter the sorted service list by the active chip.
