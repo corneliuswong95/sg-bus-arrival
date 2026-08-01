@@ -467,7 +467,7 @@ html, body {
 .nb-rdest { flex:1; min-width:0; font-family:'Archivo'; font-stretch:82%; text-transform:uppercase; letter-spacing:.02em;
   font-weight:700; font-size:13px; color:var(--panel-dest); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
 .nb-arrow { color:var(--neon); margin-right:5px; }
-.nb-reta { flex:none; font-family:'Doto'; font-variation-settings:'wght' 800; font-size:32px; line-height:.75;
+.nb-reta { flex:none; display:inline-flex; align-items:flex-end; font-family:'Doto'; font-variation-settings:'wght' 800; font-size:32px; line-height:.75;
   color:var(--panel-num); text-shadow:0 0 16px var(--panel-num-glow); }
 .nb-runit { font-family:'Archivo'; font-stretch:82%; text-transform:uppercase; letter-spacing:.08em; font-size:11px; font-weight:700; color:var(--panel-unit); margin-left:3px; }
 .nb-reta.now { color:var(--seat); font-size:22px; text-shadow:0 0 16px color-mix(in srgb,var(--seat) 55%,transparent); }
@@ -475,6 +475,30 @@ html, body {
   #bottom-sheet.open #next-board:not(.hidden) .nb-reta { animation:lightup .5s cubic-bezier(.2,.8,.2,1) both; }
 }
 @keyframes lightup { from { opacity:0; filter:brightness(.3); } to { opacity:1; filter:brightness(1); } }
+
+/* ── Live board motion: FLIP re-sort, odometer roll, enter/leave ──────────── */
+/* The number lives in its own clipped cell so the outgoing/incoming digits can
+   slide past each other like a split-flap board. */
+.nb-num { position:relative; display:inline-block; vertical-align:bottom; }
+.nb-num.rolling { overflow:hidden; }   /* clip only mid-roll so the glow shows at rest */
+.nb-num .nb-digit { display:block; }
+@media (prefers-reduced-motion: no-preference) {
+  .nb-row { transition:transform .5s cubic-bezier(.2,.85,.25,1), opacity .4s ease; will-change:transform; }
+  .nb-row.nb-entering { opacity:0; transform:translateY(-10px) scale(.97); }
+  .nb-row.nb-leaving  { opacity:0; transform:translateX(16px) scale(.96); z-index:1; }
+  .nb-num.bloom       { animation:nbBloom .65s ease-out; }
+  /* A light bar sweeps the readout whenever a time updates. Resting opacity is
+     0 so once the animation ends the bar disappears instead of parking centred
+     (no animation-fill-mode / base opacity ⇒ it would otherwise stick at 1). */
+  .nb-rows.swept::after {
+    content:""; position:absolute; inset:-4px; pointer-events:none; border-radius:8px;
+    background:linear-gradient(105deg, transparent 34%, color-mix(in srgb,var(--neon) 26%,transparent) 50%, transparent 66%);
+    opacity:0;
+    animation:nbSweep .75s ease-out;
+  }
+}
+@keyframes nbBloom { 0% { filter:brightness(2.4); } 100% { filter:brightness(1); } }
+@keyframes nbSweep { 0% { opacity:0; transform:translateX(-115%); } 22% { opacity:1; } 100% { opacity:0; transform:translateX(115%); } }
 
 /* ── Meta bar ───────────────────────────────────────────────────────────── */
 #meta-bar { background:var(--surface); border-top:1px solid var(--hair); padding:8px 16px; display:flex; align-items:center; justify-content:space-between; flex-shrink:0; }
@@ -540,6 +564,15 @@ html, body {
 .led-chip.none .led-n { font-size:22px; color:var(--ink-3); text-shadow:none; }
 .led-chip.none { border-color:var(--hair); background:var(--surface-2); box-shadow:none; }
 .led-chip.none::before { display:none; }
+/* Split-flap flip when a card's minute changes on a tick. */
+@media (prefers-reduced-motion: no-preference) {
+  .led-chip.tick-change { animation:ledFlip .55s cubic-bezier(.2,.85,.25,1) both; transform-origin:center; backface-visibility:hidden; }
+}
+@keyframes ledFlip {
+  0%   { transform:perspective(280px) rotateX(-88deg); filter:brightness(2.3); }
+  58%  { transform:perspective(280px) rotateX(10deg); }
+  100% { transform:perspective(280px) rotateX(0); filter:brightness(1); }
+}
 .svc-then { font-family:'Doto'; font-weight:700; font-size:11px; color:var(--ink-3); white-space:nowrap; }
 .svc-then b { color:var(--ink-2); }
 /* live pulse dot */

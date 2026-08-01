@@ -358,7 +358,11 @@ function tickArrivals() {
   document.querySelectorAll('#services-list .service-card').forEach(card => {
     const svc = byNo.get(card.dataset.service);
     const live = card.querySelector('.svc-live');
-    if (svc && live) live.innerHTML = svcLiveHtml(svc);
+    if (!svc || !live) return;
+    const newMins = String(busMins(svc.NextBus));
+    const changed = card.dataset.mins !== undefined && card.dataset.mins !== newMins;
+    live.innerHTML = svcLiveHtml(svc, changed && !reduceMotion());
+    card.dataset.mins = newMins;
   });
   renderNextBoard((lastArrivalsData.Services || []).filter(s => s.ServiceNo));
 }
@@ -438,10 +442,11 @@ async function loadArrivals(code) {
 
 function renderArrivals(data) {
   const list = document.getElementById('services-list');
+  // Natural service-number order only — favourites are surfaced by the "Your
+  // buses" board above, so there's no need to float them to the top here too.
   const all = (data.Services || [])
     .filter(s => s.ServiceNo)
-    .sort((a, b) => favFirst(favServices, a.ServiceNo, b.ServiceNo)
-                 || compareServiceNo(a.ServiceNo, b.ServiceNo));
+    .sort((a, b) => compareServiceNo(a.ServiceNo, b.ServiceNo));
 
   const services = applyServiceFilter(all);
   updateFilterChips(all);
@@ -455,7 +460,7 @@ function renderArrivals(data) {
   list.innerHTML = services.map(svc => {
     const isActive = svc.ServiceNo === routeServiceNo;
     return `
-      <div class="service-card${isActive ? ' route-active' : ''}" data-service="${escHtml(svc.ServiceNo)}">
+      <div class="service-card${isActive ? ' route-active' : ''}" data-service="${escHtml(svc.ServiceNo)}" data-mins="${busMins(svc.NextBus)}">
         <div class="svc-id">
           <span class="svc-no">${escHtml(svc.ServiceNo)}</span>
           ${operatorBadge(svc.Operator)}
@@ -470,6 +475,10 @@ function renderArrivals(data) {
 // an amber LED readout. Shown only when the stop has ≥1 favourited service; the
 // whole board hides otherwise (no generic fallback).
 const NEXT_BOARD_MAX = 4;
+function reduceMotion() {
+  return window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+}
+
 function renderNextBoard(services) {
   const board = document.getElementById('next-board');
   if (!board) return;
@@ -487,17 +496,177 @@ function renderNextBoard(services) {
   const anyLive = favs.some(({ s }) => s.NextBus && Number(s.NextBus.Monitored) === 1);
   board.querySelector('.nb-live').classList.toggle('hidden', !anyLive);
 
-  rowsEl.innerHTML = favs.map(({ s, mins }) => {
-    const dest = stopByCode.get(s.NextBus?.DestinationCode)?.Description || '';
-    const eta = mins <= 0
-      ? `<span class="nb-reta now">Arr</span>`
-      : `<span class="nb-reta">${mins}<span class="nb-runit">min</span></span>`;
-    return `<div class="nb-row">
-      <span class="nb-rt">${escHtml(s.ServiceNo)}</span>
-      <span class="nb-rdest">${dest ? `<span class="nb-arrow">▸</span>${escHtml(dest)}` : ''}</span>
-      ${eta}
-    </div>`;
-  }).join('');
+  reconcileBoard(rowsEl, favs);
+}
+
+// Keyed reconciliation so rows keep their identity across renders — that lets us
+// FLIP-animate the re-sort, roll the changing minutes like a split-flap board,
+// and fade rows in/out instead of blowing away innerHTML on every 10s tick.
+function reconcileBoard(rowsEl, favs) {
+  const reduce = reduceMotion();
+  const prev = new Map();
+  rowsEl.querySelectorAll('.nb-row').forEach(r => {
+    if (!r.classList.contains('nb-leaving')) prev.set(r.dataset.svc, r);
+  });
+
+  // FIRST — record each surviving row's screen position before we reorder.
+  const firstTop = new Map();
+  if (!reduce) prev.forEach((r, k) => firstTop.set(k, r.getBoundingClientRect().top));
+
+  const ordered = [];
+  const usedKeys = new Set();
+  let numberChanged = false;
+
+  favs.forEach(({ s, mins }) => {
+    const key = s.ServiceNo;
+    usedKeys.add(key);
+    let row = prev.get(key);
+    let isNew = false;
+    if (!row) {
+      row = createBoardRow(s);
+      updateBoardRow(row, s, mins, false);
+      isNew = true;
+    } else if (updateBoardRow(row, s, mins, true)) {
+      numberChanged = true;
+    }
+    rowsEl.appendChild(row);            // re-appending sets the new visual order
+    ordered.push({ row, isNew, key });
+  });
+
+  // Rows no longer on the board fly out.
+  prev.forEach((row, key) => { if (!usedKeys.has(key)) leaveBoardRow(rowsEl, row, reduce); });
+
+  if (reduce) {
+    ordered.forEach(({ row }) => row.classList.remove('nb-entering'));
+    return;
+  }
+
+  // LAST + INVERT + PLAY — new rows fade in; survivors slide from their old spot.
+  ordered.forEach(({ row, isNew, key }) => {
+    if (isNew) {
+      row.classList.add('nb-entering');
+      requestAnimationFrame(() => requestAnimationFrame(() => row.classList.remove('nb-entering')));
+      return;
+    }
+    if (!firstTop.has(key)) return;
+    const dy = firstTop.get(key) - row.getBoundingClientRect().top;
+    if (Math.abs(dy) < 1) return;
+    row.style.transition = 'none';
+    row.style.transform = `translateY(${dy}px)`;
+    void row.offsetWidth;              // commit the inverted position
+    row.style.transition = '';
+    row.style.transform = '';
+  });
+
+  if (numberChanged) sweepBoard(rowsEl);
+}
+
+function boardDest(s) {
+  return stopByCode.get(s.NextBus?.DestinationCode)?.Description || '';
+}
+
+function createBoardRow(s) {
+  const row = document.createElement('div');
+  row.className = 'nb-row';
+  row.dataset.svc = s.ServiceNo;
+  row.innerHTML = `
+    <span class="nb-rt">${escHtml(s.ServiceNo)}</span>
+    <span class="nb-rdest"></span>
+    <span class="nb-reta"><span class="nb-num"></span><span class="nb-runit">min</span></span>`;
+  return row;
+}
+
+// Refresh a row's destination + minutes in place. Returns true when the readout
+// value actually changed (so the caller can trigger the board sweep).
+function updateBoardRow(row, s, mins, animate) {
+  const dest = boardDest(s);
+  row.querySelector('.nb-rdest').innerHTML = dest
+    ? `<span class="nb-arrow">▸</span>${escHtml(dest)}` : '';
+
+  const reta = row.querySelector('.nb-reta');
+  const numEl = reta.querySelector('.nb-num');
+  const unitEl = reta.querySelector('.nb-runit');
+  const arr = mins <= 0;
+  reta.classList.toggle('now', arr);
+  unitEl.style.display = arr ? 'none' : '';
+
+  const newVal = arr ? 'Arr' : String(mins);
+  const changed = numEl.dataset.val !== undefined && numEl.dataset.val !== newVal;
+  const roll = animate && !reduceMotion();
+  rollValue(numEl, newVal, roll);
+  if (changed && roll) flashBloom(numEl);
+  return changed;
+}
+
+// Odometer roll: the outgoing value slides up and out while the incoming value
+// rises in from below. Uses the Web Animations API so an in-flight roll can be
+// cancelled cleanly — the 10s tick and 30s fetch both re-render the board and
+// collide every 30s, and a transition-based roll would strand the old digit.
+function rollValue(numEl, text, animate) {
+  // Collapse any in-flight roll to a single settled digit first, so overlapping
+  // renders can never leave an old value stacked behind the new one.
+  numEl.querySelectorAll('.nb-digit').forEach(d => {
+    (d.getAnimations ? d.getAnimations() : []).forEach(a => a.cancel());
+  });
+  while (numEl.childElementCount > 1) numEl.firstElementChild.remove();
+  const current = numEl.firstElementChild;   // sole survivor = the current value
+  if (current) current.removeAttribute('style');
+  numEl.classList.remove('rolling');
+
+  if (numEl.dataset.val === text) return;
+  const first = numEl.dataset.val === undefined || !current;
+  numEl.dataset.val = text;
+
+  if (first || !animate || !current.animate) {
+    numEl.innerHTML = `<span class="nb-digit">${escHtml(text)}</span>`;
+    return;
+  }
+
+  const incoming = document.createElement('span');
+  incoming.className = 'nb-digit';
+  incoming.textContent = text;
+  numEl.appendChild(incoming);
+  numEl.classList.add('rolling');
+
+  const timing = { duration: 500, easing: 'cubic-bezier(.3,.85,.2,1)' };
+  current.style.position = 'absolute';
+  current.style.left = '0';
+  current.style.right = '0';
+  current.style.top = '0';
+  current.animate([{ transform: 'translateY(0)', opacity: 1 },
+                   { transform: 'translateY(-110%)', opacity: 0 }], timing);
+  const inAnim = incoming.animate([{ transform: 'translateY(105%)', opacity: 0 },
+                                   { transform: 'translateY(0)', opacity: 1 }], timing);
+  inAnim.onfinish = () => {
+    if (current.parentNode) current.remove();
+    numEl.classList.remove('rolling');
+  };
+}
+
+function flashBloom(el) {
+  el.classList.remove('bloom');
+  void el.offsetWidth;
+  el.classList.add('bloom');
+}
+
+function sweepBoard(rowsEl) {
+  rowsEl.classList.remove('swept');
+  void rowsEl.offsetWidth;
+  rowsEl.classList.add('swept');
+}
+
+function leaveBoardRow(rowsEl, row, reduce) {
+  if (reduce) { row.remove(); return; }
+  const top = row.getBoundingClientRect().top - rowsEl.getBoundingClientRect().top;
+  row.style.position = 'absolute';
+  row.style.top = `${top}px`;
+  row.style.left = '0';
+  row.style.right = '0';
+  row.classList.add('nb-leaving');
+  let done = false;
+  const finish = () => { if (done) return; done = true; row.remove(); };
+  row.addEventListener('transitionend', finish, { once: true });
+  setTimeout(finish, 600);
 }
 
 // Filter the sorted service list by the active chip.
@@ -515,18 +684,20 @@ function emptyServicesHtml(total) {
 
 // The live (time-sensitive) half of a service card: hero countdown, the "then"
 // line, destination and crowding. Re-rendered every tick so minutes count down.
-function svcLiveHtml(svc) {
+function svcLiveHtml(svc, animate = false) {
   const nb = svc.NextBus;
   const dest = stopByCode.get(nb?.DestinationCode)?.Description || '';
   const mins = busMins(nb);
   const live = !!nb && Number(nb.Monitored) === 1;
 
-  // LED time chip (the amber readout) — the live/scheduled/arriving states
+  // LED time chip (the amber readout) — the live/scheduled/arriving states.
+  // `animate` splits-flap the chip when the minute changed since the last tick.
+  const fx = animate ? ' tick-change' : '';
   let chip;
-  if (mins === null)   chip = `<div class="led-chip none"><span class="led-n">—</span></div>`;
-  else if (mins <= 0)  chip = `<div class="led-chip now"><span class="led-n">Arr</span></div>`;
-  else if (live)       chip = `<div class="led-chip"><span class="led-n">${mins}</span><span class="led-u">min</span></div>`;
-  else                 chip = `<div class="led-chip sched"><span class="led-n">${mins}</span><span class="led-u">min</span></div>`;
+  if (mins === null)   chip = `<div class="led-chip none${fx}"><span class="led-n">—</span></div>`;
+  else if (mins <= 0)  chip = `<div class="led-chip now${fx}"><span class="led-n">Arr</span></div>`;
+  else if (live)       chip = `<div class="led-chip${fx}"><span class="led-n">${mins}</span><span class="led-u">min</span></div>`;
+  else                 chip = `<div class="led-chip sched${fx}"><span class="led-n">${mins}</span><span class="led-u">min</span></div>`;
 
   const pulse = (mins !== null && mins > 0 && live) ? '<span class="pdot" title="Live tracking"></span>' : '';
   const typeIcon = busTypeIcon(nb?.Type);
@@ -847,6 +1018,7 @@ function openSheet(stop) {
   document.getElementById('fav-stop-btn').classList.toggle('starred', favStops.has(stop.BusStopCode));
   document.getElementById('services-list').innerHTML = '';
   document.getElementById('next-board').classList.add('hidden');
+  document.querySelector('#next-board .nb-rows').innerHTML = ''; // fresh board per stop (no stale FLIP)
   document.getElementById('updated-label').textContent = '—';
   currentFilter = 'all';
   syncFilterChips();

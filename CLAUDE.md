@@ -6,6 +6,8 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 Singapore bus-arrival web app: a Leaflet map of bus stops with live arrival times, route overlays, nearby-stop ranking, and postal-code search. Plain Express backend + vanilla-JS frontend — **no framework, no build step, no test suite, no linter.**
 
+> Notable design decisions and reversals (the "why" behind non-obvious changes) are logged in [`DECISIONS.md`](DECISIONS.md).
+
 ## Commands
 
 ```bash

@@ -14,7 +14,7 @@
  *   • navigations .................................. network-first, offline → cached shell
  */
 
-const CACHE_VERSION = 'v2';
+const CACHE_VERSION = 'v4';
 const CORE_CACHE    = `core-${CACHE_VERSION}`;
 const RUNTIME_CACHE = `runtime-${CACHE_VERSION}`;
 const TILE_CACHE    = `tiles-${CACHE_VERSION}`;
