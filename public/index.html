@@ -93,6 +93,36 @@
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Archivo:wdth,wght@75..125,400..800&family=Doto:wght@400..900&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="/css/style.css">
+
+  <!-- 🇸🇬 National Day touch — self-contained & seasonal. The gate adds
+       `.sg-natday` to <html> only on 1–11 Aug (auto on/off each year), which
+       reveals a small waving Singapore flag held aloft beside the wordmark.
+       Remove this block (+ the .sg-flag markup in #brand) to retire it. -->
+  <script>
+    try {
+      var _nd = new Date();
+      if (_nd.getMonth() === 7 && _nd.getDate() <= 11) document.documentElement.classList.add('sg-natday');
+    } catch (e) {}
+  </script>
+  <style>
+    .sg-flag { display: none; }
+    .sg-natday #brand { padding-right: 9px; }
+    .sg-natday .sg-flag {
+      display: inline-flex; align-items: center; margin-left: 4px;
+      filter: drop-shadow(0 0 4px rgba(255, 122, 31, .5));
+    }
+    .sg-natday .sg-flag svg { display: block; width: 28px; height: auto; }
+    .sg-flag .sg-wave { transform-box: fill-box; transform-origin: left center; }
+    /* gentle flutter — only when the user hasn't asked for reduced motion */
+    @media (prefers-reduced-motion: no-preference) {
+      .sg-natday .sg-flag .sg-wave { animation: sgWave 2.8s ease-in-out infinite; }
+    }
+    @keyframes sgWave {
+      0%, 100% { transform: skewY(0deg) scaleX(1); }
+      30%      { transform: skewY(-2deg) scaleX(.985); }
+      65%      { transform: skewY(1.5deg) scaleX(1.01); }
+    }
+  </style>
 </head>
 <body>
 
@@ -257,6 +287,46 @@
       </svg>
     </span>
     <span class="wm">buski</span>
+    <span class="sg-flag" aria-hidden="true" title="Happy National Day, Singapore 🇸🇬">
+      <svg viewBox="5 0 43 46" xmlns="http://www.w3.org/2000/svg">
+        <defs>
+          <linearGradient id="sgPole" x1="0" y1="0" x2="1" y2="0">
+            <stop offset="0" stop-color="#6b5a44"/><stop offset=".4" stop-color="#d9c9b0"/><stop offset="1" stop-color="#5a4a38"/>
+          </linearGradient>
+          <linearGradient id="sgRed" x1="0" y1="0" x2="1" y2="0">
+            <stop offset="0" stop-color="#c8202c"/><stop offset=".28" stop-color="#f43f4b"/><stop offset=".6" stop-color="#d62531"/><stop offset=".82" stop-color="#f43f4b"/><stop offset="1" stop-color="#c8202c"/>
+          </linearGradient>
+          <linearGradient id="sgWhite" x1="0" y1="0" x2="1" y2="0">
+            <stop offset="0" stop-color="#dcdce2"/><stop offset=".28" stop-color="#ffffff"/><stop offset=".6" stop-color="#e7e7ee"/><stop offset=".82" stop-color="#ffffff"/><stop offset="1" stop-color="#d7d7df"/>
+          </linearGradient>
+          <path id="sgStar" d="M0,-2.4 L0.56,-0.78 2.28,-0.74 0.91,0.3 1.41,1.94 0,0.96 -1.41,1.94 -0.91,0.3 -2.28,-0.74 -0.56,-0.78 Z"/>
+        </defs>
+        <!-- short pole + finial, gripped just under the flag -->
+        <g filter="drop-shadow(0 0 2px rgba(255,150,40,.55))">
+          <rect x="11.3" y="3.2" width="2.4" height="40" rx="1.2" fill="url(#sgPole)"/>
+          <circle cx="12.5" cy="3" r="2.7" fill="url(#sgPole)"/>
+        </g>
+        <!-- flag: red over white, waving (gently animated); crescent + 5 stars -->
+        <g class="sg-wave">
+          <path d="M12.7,7 C 24,2.8 33,10 46,6 C 47,9.5 46,13 46,16.5 C 33,20.5 24,13.5 12.7,17.6 Z" fill="url(#sgRed)"/>
+          <path d="M12.7,17.6 C 24,13.5 33,20.5 46,16.5 C 47,20.5 46,24 46,27.5 C 33,31.5 24,25 12.7,28 Z" fill="url(#sgWhite)"/>
+          <g fill="#ffffff">
+            <circle cx="19.5" cy="11.8" r="4.0"/><circle cx="22.2" cy="11.4" r="3.35" fill="url(#sgRed)"/>
+            <use href="#sgStar" transform="translate(25.8 8.4) scale(.5)"/><use href="#sgStar" transform="translate(29.0 10.75) scale(.5)"/><use href="#sgStar" transform="translate(27.8 14.55) scale(.5)"/><use href="#sgStar" transform="translate(23.8 14.55) scale(.5)"/><use href="#sgStar" transform="translate(22.57 10.75) scale(.5)"/>
+          </g>
+          <path d="M12.7,7 C 24,2.8 33,10 46,6 C 47,9.5 46,13 46,16.5 C 47,20.5 46,24 46,27.5 C 33,31.5 24,25 12.7,28" fill="none" stroke="rgba(255,150,40,.5)" stroke-width=".5"/>
+        </g>
+        <!-- minimal fist gripping the pole just below the flag (neon-rim, matches the logo) -->
+        <g fill="#3a2415" stroke="#ffb85a" stroke-width=".7" stroke-linejoin="round">
+          <path d="M9.6,41.5 H15.4 V44 C 15.4,45.7 9.6,45.7 9.6,44 Z"/>
+          <rect x="7.7" y="30" width="9.8" height="11" rx="3.8"/>
+          <g stroke-width=".5">
+            <rect x="11" y="30.5" width="6.2" height="2.4" rx="1.2"/><rect x="11" y="33" width="6.2" height="2.4" rx="1.2"/><rect x="11" y="35.5" width="6.2" height="2.4" rx="1.2"/><rect x="11" y="38" width="5.7" height="2.3" rx="1.15"/>
+          </g>
+          <path d="M8.0,33.6 C 6.0,33.3 5.7,35.8 7.4,36.7 C 8.5,37.3 9.5,36.6 9.5,35.3" stroke-width=".6"/>
+        </g>
+      </svg>
+    </span>
   </div>
 
   <!-- Nearby stops sheet (always-visible peek, drag up to expand) -->
