@@ -60,11 +60,34 @@ const ICONS = {
   'favicon-32.png':        { size: 32,  opts: { frac: 0.86, rounded: 0.22 } },
 };
 
+// Wrap a PNG buffer in a single-image ICO container (PNG-in-ICO, supported by
+// all modern browsers + Google). Google Search's primary favicon lookup is
+// /favicon.ico, so we ship a real one — a data-URI <link> icon isn't crawlable.
+function pngToIco(png, size) {
+  const dir = Buffer.alloc(6);
+  dir.writeUInt16LE(1, 2);            // type = 1 (icon)
+  dir.writeUInt16LE(1, 4);            // image count = 1
+  const ent = Buffer.alloc(16);
+  ent[0] = size >= 256 ? 0 : size;    // width  (0 means 256)
+  ent[1] = size >= 256 ? 0 : size;    // height
+  ent.writeUInt16LE(1, 4);            // color planes
+  ent.writeUInt16LE(32, 6);           // bits per pixel
+  ent.writeUInt32LE(png.length, 8);   // size of PNG data
+  ent.writeUInt32LE(22, 12);          // offset = 6 (dir) + 16 (entry)
+  return Buffer.concat([dir, ent, png]);
+}
+
 (async () => {
   for (const [name, { size, opts }] of Object.entries(ICONS)) {
     const svg = Buffer.from(iconSvg(size, opts));
     await sharp(svg, { density: 384 }).png().toFile(path.join(OUT_DIR, name));
     console.log(`✓ ${name} (${size}×${size})`);
   }
-  console.log('Done → public/icons');
+
+  // Real /favicon.ico at the site root (48×48 — Google's recommended size).
+  const fav = await sharp(Buffer.from(iconSvg(48, { frac: 0.86, rounded: 0.22 })), { density: 384 }).png().toBuffer();
+  fs.writeFileSync(path.join(__dirname, '..', 'public', 'favicon.ico'), pngToIco(fav, 48));
+  console.log('✓ favicon.ico (48×48)');
+
+  console.log('Done → public/icons + public/favicon.ico');
 })().catch(err => { console.error(err); process.exit(1); });
