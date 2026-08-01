@@ -1,0 +1,223 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Archivo:wdth,wght@75..125,400..800&family=Doto:wght@400..900&display=swap" rel="stylesheet">
+<style>
+  *{ margin:0; padding:0; box-sizing:border-box; }
+  :root{
+    /* Amber overdrive — the app's default dark departure-board palette */
+    --paper:#0c0705; --surface:#17100a; --surface-2:#0f0a06;
+    --ink:#fdeede; --ink-2:#c9b49c; --ink-3:#8a7460; --hair:#2e2114;
+    --amber:#ffd21a; --amber-glow:rgba(255,200,30,.78);
+    --neon:#ff7a1f; --neon-glow:rgba(255,130,25,.62);
+    --seat:#39ff9e;
+    --panel-bg:#0a0603; --panel-num:#ffe14d; --panel-num-glow:rgba(255,225,77,.82);
+    --panel-unit:#c98a2a; --panel-svc-text:#fff3df; --panel-dest:#ffe6c2; --panel-dot:rgba(255,210,40,.16);
+    --ic-body:#241610; --ic-blind:#0a0603; --ic-dot:#ffc400; --ic-screen:#4a3418; --ic-hl:#ffd21a;
+    --grid:rgba(255,130,25,.07);
+  }
+  html,body{ width:1200px; height:630px; }
+  body{
+    position:relative; overflow:hidden;
+    font-family:'Archivo',system-ui,sans-serif;
+    background:var(--paper); color:var(--ink);
+    -webkit-font-smoothing:antialiased;
+  }
+  .sign{ font-family:'Archivo',sans-serif; text-transform:uppercase; }
+
+  /* ── Ambient board texture ─────────────────────────── */
+  .bg-grid{ position:absolute; inset:-2px;
+    background-image:
+      linear-gradient(0deg, var(--grid) 1px, transparent 1px),
+      linear-gradient(90deg, var(--grid) 1px, transparent 1px);
+    background-size:52px 52px; }
+  .bg-scan{ position:absolute; inset:0; pointer-events:none;
+    background:repeating-linear-gradient(0deg, transparent 0 3px, rgba(255,130,25,.05) 3px 4px); }
+  .bg-glow{ position:absolute; inset:0; pointer-events:none;
+    background:
+      radial-gradient(circle at 84% 14%, rgba(255,122,31,.28), transparent 46%),
+      radial-gradient(circle at 74% 62%, rgba(255,210,40,.14), transparent 40%),
+      radial-gradient(circle at 6% 96%, rgba(255,122,31,.10), transparent 42%); }
+  .route{ position:absolute; inset:0; opacity:.9; }
+
+  /* ── Left content ──────────────────────────────────── */
+  .content{ position:absolute; left:74px; top:86px; width:580px; z-index:5; }
+  .brand{ display:flex; align-items:center; gap:20px; }
+  .tile{
+    width:96px; height:96px; border-radius:24px; flex:none;
+    background:linear-gradient(160deg,#1a110a,#0c0705);
+    border:1.5px solid rgba(255,122,31,.55);
+    box-shadow:0 0 26px rgba(255,122,31,.42), inset 0 0 22px rgba(255,122,31,.10);
+    display:flex; align-items:center; justify-content:center;
+  }
+  .tile svg{ width:66px; height:66px; filter:drop-shadow(0 0 6px rgba(255,122,31,.5)); }
+  .word{
+    font-family:'Doto',monospace; font-weight:900; font-size:66px; line-height:1;
+    color:var(--amber); text-shadow:0 0 22px var(--amber-glow); letter-spacing:.02em;
+  }
+
+  .headline{
+    margin-top:44px; font-family:'Archivo'; font-stretch:88%; font-weight:800;
+    text-transform:uppercase; font-size:53px; line-height:1.02; letter-spacing:.005em;
+    color:var(--ink); white-space:nowrap;
+  }
+  .headline .amber{ color:var(--amber); text-shadow:0 0 26px var(--amber-glow); }
+
+  .subline{
+    margin-top:22px; font-family:'Archivo'; font-weight:500; font-size:22px;
+    line-height:1.45; color:var(--ink-3); max-width:475px;
+  }
+
+  .chips{ margin-top:34px; display:flex; gap:12px; }
+  .chip{
+    display:inline-flex; align-items:center; gap:9px;
+    font-family:'Archivo'; font-stretch:90%; text-transform:uppercase;
+    letter-spacing:.05em; font-weight:700; font-size:15px; white-space:nowrap;
+    padding:11px 17px; border-radius:12px;
+    background:var(--surface); border:1px solid var(--hair); color:var(--ink-2);
+  }
+  .chip .dot{ width:8px; height:8px; border-radius:50%; background:var(--ink-3); }
+  .chip.live{ color:var(--seat); border-color:color-mix(in srgb,var(--seat) 40%,transparent); }
+  .chip.live .dot{ background:var(--seat); box-shadow:0 0 8px var(--seat); }
+  .chip.free{ color:var(--neon); border-color:color-mix(in srgb,var(--neon) 55%,transparent);
+    background:color-mix(in srgb,var(--neon) 10%,var(--surface)); box-shadow:0 0 16px rgba(255,122,31,.25); }
+  .chip.free .dot{ background:var(--neon); box-shadow:0 0 8px var(--neon); }
+
+  /* ── Departure board (hero) ────────────────────────── */
+  .board{
+    position:absolute; top:118px; left:632px; width:498px; z-index:8;
+    background:var(--panel-bg); border:1.5px solid var(--neon); border-radius:20px;
+    padding:22px 24px 24px; overflow:hidden;
+    box-shadow:0 0 40px rgba(255,122,31,.38), 0 30px 70px -24px rgba(0,0,0,.85);
+  }
+  .board::before{ content:""; position:absolute; inset:0; pointer-events:none;
+    background-image:radial-gradient(var(--panel-dot) .9px, transparent 1px); background-size:6px 6px; }
+  .board::after{ content:""; position:absolute; inset:0; pointer-events:none;
+    background:repeating-linear-gradient(0deg, transparent 0 3px, color-mix(in srgb,var(--neon) 14%,transparent) 3px 4px); }
+  .board > *{ position:relative; z-index:1; }
+
+  .eyebrow{ display:flex; align-items:center; margin-bottom:16px; }
+  .eyebrow .lab{ font-family:'Archivo'; font-stretch:80%; text-transform:uppercase;
+    letter-spacing:.24em; font-size:13px; font-weight:700; color:var(--neon); }
+  .eyebrow .live{ margin-left:auto; display:inline-flex; align-items:center; gap:6px;
+    font-family:'Archivo'; font-stretch:82%; text-transform:uppercase; letter-spacing:.16em;
+    font-size:12px; font-weight:700; color:var(--seat); }
+  .eyebrow .live .ld{ width:8px; height:8px; border-radius:50%; background:var(--seat); box-shadow:0 0 8px var(--seat); }
+
+  .stop{ display:flex; align-items:center; gap:12px; padding-bottom:16px; }
+  .code{
+    font-family:'Doto',monospace; font-weight:900; font-size:20px; color:var(--panel-num);
+    background:var(--panel-bg); border:1.5px solid var(--neon); border-radius:8px;
+    box-shadow:0 0 10px var(--neon-glow); text-shadow:0 0 8px var(--panel-num-glow);
+    padding:6px 10px; letter-spacing:.06em;
+  }
+  .stopname{ font-family:'Archivo'; font-stretch:86%; text-transform:uppercase; font-weight:800;
+    font-size:22px; letter-spacing:.01em; color:var(--ink); line-height:1.05; }
+  .stoproad{ font-family:'Archivo'; font-stretch:88%; text-transform:uppercase; letter-spacing:.06em;
+    font-size:12px; color:var(--ink-3); margin-top:3px; }
+
+  .rows{ border-top:1px solid color-mix(in srgb,var(--neon) 26%,transparent); }
+  .row{ display:flex; align-items:center; gap:16px; padding:16px 0; }
+  .row + .row{ border-top:1px solid color-mix(in srgb,var(--neon) 18%,transparent); }
+  .rt{
+    flex:none; min-width:58px; text-align:center;
+    font-family:'Doto',monospace; font-weight:900; font-size:22px; color:var(--panel-svc-text);
+    border:1.5px solid var(--neon); border-radius:8px; box-shadow:0 0 9px var(--neon-glow);
+    padding:7px 6px; letter-spacing:.04em;
+  }
+  .rdest{ flex:1; min-width:0; font-family:'Archivo'; font-stretch:82%; text-transform:uppercase;
+    letter-spacing:.02em; font-weight:700; font-size:16px; color:var(--panel-dest);
+    white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  .rdest .arw{ color:var(--neon); margin-right:8px; }
+  .reta{ flex:none; display:flex; align-items:baseline; gap:6px; }
+  .reta .n{ font-family:'Doto',monospace; font-weight:900; font-size:40px; line-height:.7;
+    color:var(--panel-num); text-shadow:0 0 18px var(--panel-num-glow); }
+  .reta .u{ font-family:'Archivo'; font-stretch:82%; text-transform:uppercase; letter-spacing:.08em;
+    font-size:13px; font-weight:700; color:var(--panel-unit); }
+  .reta.now .n{ font-size:26px; color:var(--seat); text-shadow:0 0 18px color-mix(in srgb,var(--seat) 60%,transparent); }
+</style>
+</head>
+<body>
+  <div class="bg-grid"></div>
+  <div class="bg-glow"></div>
+
+  <svg class="route" viewBox="0 0 1200 630" fill="none" xmlns="http://www.w3.org/2000/svg">
+    <defs>
+      <filter id="ng" x="-40%" y="-40%" width="180%" height="180%">
+        <feGaussianBlur stdDeviation="5" result="b"/>
+        <feMerge><feMergeNode in="b"/><feMergeNode in="SourceGraphic"/></feMerge>
+      </filter>
+    </defs>
+    <path d="M70 560 C 240 600, 360 540, 430 452 C 520 340, 470 210, 560 150"
+          stroke="#ff7a1f" stroke-width="4" stroke-linecap="round" opacity=".38"
+          stroke-dasharray="2 14" filter="url(#ng)"/>
+    <circle cx="70" cy="560" r="7" fill="#39ff9e" opacity=".9" filter="url(#ng)"/>
+    <circle cx="430" cy="452" r="6" fill="#ff7a1f" opacity=".6" filter="url(#ng)"/>
+  </svg>
+  <div class="bg-scan"></div>
+
+  <div class="content">
+    <div class="brand">
+      <div class="tile">
+        <svg viewBox="0 0 96 96" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+          <rect x="20" y="15" width="56" height="66" rx="16" fill="var(--ic-body)" stroke="var(--neon)" stroke-width="3"/>
+          <rect x="27" y="22" width="42" height="14" rx="3" fill="var(--ic-blind)"/>
+          <circle cx="33" cy="29" r="2.3" fill="var(--ic-dot)"/>
+          <circle cx="40" cy="29" r="2.3" fill="var(--ic-dot)"/>
+          <circle cx="47" cy="29" r="2.3" fill="var(--ic-dot)"/>
+          <circle cx="54" cy="29" r="2.3" fill="var(--ic-dot)"/>
+          <circle cx="61" cy="29" r="2.3" fill="var(--ic-dot)"/>
+          <rect x="27" y="42" width="42" height="15" rx="4" fill="var(--ic-screen)"/>
+          <circle cx="33" cy="71" r="4" fill="var(--ic-hl)"/>
+          <circle cx="63" cy="71" r="4" fill="var(--ic-hl)"/>
+        </svg>
+      </div>
+      <div class="word">Buski</div>
+    </div>
+
+    <div class="headline">Live bus arrivals,<br><span class="amber">across Singapore.</span></div>
+    <div class="subline">Real-time timings, nearby stops &amp; route maps — on a clean, ad-free map.</div>
+
+    <div class="chips">
+      <div class="chip"><span class="dot"></span>Nearby stops</div>
+      <div class="chip live"><span class="dot"></span>Live tracking</div>
+      <div class="chip free"><span class="dot"></span>Free &amp; ad-free</div>
+    </div>
+  </div>
+
+  <div class="board">
+    <div class="eyebrow">
+      <span class="lab">// Next buses</span>
+      <span class="live"><span class="ld"></span>Live</span>
+    </div>
+    <div class="stop">
+      <span class="code">65009</span>
+      <div>
+        <div class="stopname">Punggol Int</div>
+        <div class="stoproad">Punggol Place</div>
+      </div>
+    </div>
+    <div class="rows">
+      <div class="row">
+        <span class="rt">74</span>
+        <span class="rdest"><span class="arw">▸</span>Bedok Int</span>
+        <span class="reta"><span class="n">3</span><span class="u">min</span></span>
+      </div>
+      <div class="row">
+        <span class="rt">85</span>
+        <span class="rdest"><span class="arw">▸</span>Toa Payoh Int</span>
+        <span class="reta"><span class="n">8</span><span class="u">min</span></span>
+      </div>
+      <div class="row">
+        <span class="rt">168</span>
+        <span class="rdest"><span class="arw">▸</span>Clementi Int</span>
+        <span class="reta"><span class="n">14</span><span class="u">min</span></span>
+      </div>
+    </div>
+  </div>
+
+</body>
+</html>
