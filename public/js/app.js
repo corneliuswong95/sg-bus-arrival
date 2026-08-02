@@ -449,7 +449,7 @@ function renderArrivals(data) {
     .sort((a, b) => compareServiceNo(a.ServiceNo, b.ServiceNo));
 
   const services = applyServiceFilter(all);
-  updateFilterChips(all);
+  syncFilterChips();      // keep the chip highlight in sync with the active filter
   renderNextBoard(all);   // hero "next bus" board reflects the whole stop
 
   if (!services.length) {
@@ -737,12 +737,12 @@ function busEtaMins(km) {
 // Crowding as a 3-segment bar + colour-coded word from the LTA Load field
 // (SEA/SDA/LSD). Colour + text keeps it readable for colour-blind users.
 function crowdHtml(load) {
-  const map = {
+  const levels = {
     SEA: { n: 1, cls: 'seats',    word: 'Seats' },
     SDA: { n: 2, cls: 'standing', word: 'Standing' },
     LSD: { n: 3, cls: 'limited',  word: 'Full' },
   };
-  const c = map[load];
+  const c = levels[load];
   if (!c) return '';
   const segs = [1, 2, 3].map(i => `<span class="crowd-seg${i <= c.n ? ' on' : ''}"></span>`).join('');
   return `<div class="crowd ${c.cls}"><span class="crowd-bar" role="img" aria-label="Crowding: ${c.word}">${segs}</span><span class="crowd-word">${c.word}</span></div>`;
@@ -758,23 +758,6 @@ function compareServiceNo(a, b) {
   const pa = parse(a), pb = parse(b);
   if (pa.num !== pb.num) return pa.num - pb.num;
   return pa.suffix.localeCompare(pb.suffix);
-}
-
-function busChip(bus) {
-  if (!bus?.EstimatedArrival) {
-    return `<div class="bus-chip"><span class="chip-time">—</span></div>`;
-  }
-
-  const mins = Math.round((new Date(bus.EstimatedArrival) - Date.now()) / 60_000);
-  const timeText = mins <= 0 ? 'Arr' : `${mins}m`;
-  const loadCls = { SEA: 'sea', SDA: 'sda', LSD: 'lsd' }[bus.Load] || '';
-  const typeIcon = busTypeIcon(bus.Type);
-
-  return `
-    <div class="bus-chip ${loadCls}">
-      <span class="chip-time ${mins <= 0 ? 'arr' : ''}">${timeText}</span>
-      ${typeIcon ? `<div class="chip-meta">${typeIcon}</div>` : ''}
-    </div>`;
 }
 
 // SVG icon for bus body type (double-decker / bendy). Single-deck = no icon.
@@ -830,8 +813,8 @@ function busTypeIcon(type) {
 // Operator tag — neutral outlined chip (kept out of the amber/orange system so it
 // doesn't compete with the live data).
 function operatorBadge(op) {
-  const map = { SBST: 'SBS', SMRT: 'SMRT', TTS: 'Tower', GAS: 'Go' };
-  const label = map[op] || op || '';
+  const labels = { SBST: 'SBS', SMRT: 'SMRT', TTS: 'Tower', GAS: 'Go' };
+  const label = labels[op] || op || '';
   if (!label) return '';
   return `<span class="svc-operator">${escHtml(label)}</span>`;
 }
@@ -851,11 +834,6 @@ function syncFilterChips() {
   document.querySelectorAll('#filter-chips .filter-chip').forEach(c => {
     c.classList.toggle('active', c.dataset.filter === currentFilter);
   });
-}
-
-// Called each render; keeps the chip highlight in sync with the active filter.
-function updateFilterChips() {
-  syncFilterChips();
 }
 
 // ── Live vehicles ─────────────────────────────────────────────────────────────

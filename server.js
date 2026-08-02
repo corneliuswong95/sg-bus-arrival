@@ -11,6 +11,44 @@ const LTA_BASE = 'https://datamall2.mytransport.sg/ltaodataservice';
 // client IP from the X-Forwarded-For header instead of the proxy's address.
 app.set('trust proxy', true);
 
+// ── Security headers ────────────────────────────────────────────────────────
+// Applied to every response (static assets + API), ahead of the static handler.
+// The three enforcing headers are universally safe. The Content-Security-Policy
+// ships as *Report-Only* on purpose: without a browser to exercise every
+// third-party beacon (GoatCounter transport, Vercel insights) a missed origin
+// would silently break the live site, so violations are logged to the DevTools
+// console instead. Once the console is clean, rename the header to
+// `Content-Security-Policy` to enforce it.
+const CSP = [
+  "default-src 'self'",
+  "base-uri 'self'",
+  "object-src 'none'",
+  "frame-ancestors 'none'",
+  "form-action 'self'",
+  // Map tiles (CartoDB/Stadia), Leaflet CSS's relative marker images (unpkg),
+  // the data: favicon, and the GoatCounter pixel.
+  "img-src 'self' data: https://*.basemaps.cartocdn.com https://tiles.stadiamaps.com https://unpkg.com https://sg-bus-arrival.goatcounter.com",
+  // Leaflet (unpkg) + GoatCounter (gc.zgo.at). 'unsafe-inline' covers the inline
+  // theme / SW-registration scripts — no build step here to add nonces or hashes.
+  "script-src 'self' 'unsafe-inline' https://unpkg.com https://gc.zgo.at",
+  // Leaflet CSS (unpkg), Google Fonts CSS, and inline styles set by Leaflet/app JS.
+  "style-src 'self' 'unsafe-inline' https://unpkg.com https://fonts.googleapis.com",
+  "font-src 'self' https://fonts.gstatic.com",
+  // Same-origin /api/* + Vercel insight beacons; GoatCounter beacon fallback.
+  "connect-src 'self' https://sg-bus-arrival.goatcounter.com",
+  "manifest-src 'self'",
+  "worker-src 'self'",
+].join('; ');
+
+app.use((req, res, next) => {
+  res.set('X-Content-Type-Options', 'nosniff');
+  res.set('X-Frame-Options', 'DENY');
+  res.set('Referrer-Policy', 'strict-origin-when-cross-origin');
+  res.set('Permissions-Policy', 'geolocation=(self), camera=(), microphone=()');
+  res.set('Content-Security-Policy-Report-Only', CSP);
+  next();
+});
+
 app.use(express.json());
 app.use(express.static(path.join(__dirname, 'public')));
 
@@ -24,6 +62,9 @@ async function fetchLta(url, attempts = 4) {
       });
       if (res.ok) return res.json();
       lastErr = new Error(`LTA ${res.status}`);
+      // Client errors (bad key, bad params) won't fix themselves — fail fast
+      // instead of burning every retry + backoff on a request that can't succeed.
+      if (res.status >= 400 && res.status < 500) break;
     } catch (e) { lastErr = e; }
     await new Promise(r => setTimeout(r, 200 * (i + 1) + Math.random() * 200));
   }
@@ -42,6 +83,14 @@ async function runPool(items, limit, worker) {
   });
   await Promise.all(runners);
   return results;
+}
+
+// Evict entries older than `ttl` from an { at }-stamped Map. Called on write so
+// these caches shed stale entries instead of retaining them for the life of the
+// process (they only ever checked freshness on read before).
+function pruneExpired(cache, ttl) {
+  const cutoff = Date.now() - ttl;
+  for (const [k, v] of cache) if (v.at < cutoff) cache.delete(k);
 }
 
 let stopsCache = null;
@@ -149,70 +198,82 @@ app.get('/api/route', async (req, res) => {
 // Primary: Valhalla map-matching (bus costing). Fallback: OSRM route + de-spur.
 // Cache by `${service}:${direction}` → GeoJSON [lng,lat] coord array.
 const roadPathCache = new Map();
+const roadPathPromises = new Map(); // key → in-flight build (de-dupe concurrent requests)
 const ROAD_PATH_TTL = 7 * 24 * 60 * 60 * 1000; // 7 days
 
 async function fetchRoadPath(service, direction) {
   const key = `${service}:${direction}`;
   const hit = roadPathCache.get(key);
   if (hit && Date.now() - hit.at < ROAD_PATH_TTL) return hit.coords;
+  // De-dupe concurrent cold-cache builds for the same route — the Valhalla/OSRM
+  // chain is expensive, so the first caller builds it and the rest await the same
+  // promise. Mirrors the stopsPromise / routesPromise pattern above.
+  if (roadPathPromises.has(key)) return roadPathPromises.get(key);
 
-  // Need stops + their coords
-  const [stopsList, byService] = await Promise.all([fetchAllBusStops(), fetchAllBusRoutes()]);
-  const stopByCode = new Map(stopsList.map(s => [s.BusStopCode, s]));
-  const routeRows = (byService.get(service) || [])
-    .filter(r => r.Direction === direction)
-    .sort((a, b) => a.StopSequence - b.StopSequence);
+  const build = (async () => {
+    // Need stops + their coords
+    const [stopsList, byService] = await Promise.all([fetchAllBusStops(), fetchAllBusRoutes()]);
+    const stopByCode = new Map(stopsList.map(s => [s.BusStopCode, s]));
+    const routeRows = (byService.get(service) || [])
+      .filter(r => r.Direction === direction)
+      .sort((a, b) => a.StopSequence - b.StopSequence);
 
-  if (routeRows.length < 2) return null;
+    if (routeRows.length < 2) return null;
 
-  const coords = routeRows
-    .map(r => stopByCode.get(r.BusStopCode))
-    .filter(Boolean)
-    .map(s => [+s.Longitude, +s.Latitude])
-    .filter(([lng, lat]) => Number.isFinite(lng) && Number.isFinite(lat));
+    const coords = routeRows
+      .map(r => stopByCode.get(r.BusStopCode))
+      .filter(Boolean)
+      .map(s => [+s.Longitude, +s.Latitude])
+      .filter(([lng, lat]) => Number.isFinite(lng) && Number.isFinite(lat));
 
-  if (coords.length < 2) return null;
+    if (coords.length < 2) return null;
 
-  // Ground-truth signals for sanity-checking a matched path: the LTA cumulative
-  // route distance (authoritative, in km) and the straight-line stop chain (a
-  // lower bound on the real road length).
-  const ltaKm = Number(routeRows[routeRows.length - 1].Distance) || 0;
-  let straightKm = 0;
-  for (let i = 1; i < coords.length; i++) straightKm += haversineMetres(coords[i - 1], coords[i]);
-  straightKm /= 1000;
+    // Ground-truth signals for sanity-checking a matched path: the LTA cumulative
+    // route distance (authoritative, in km) and the straight-line stop chain (a
+    // lower bound on the real road length).
+    const ltaKm = Number(routeRows[routeRows.length - 1].Distance) || 0;
+    let straightKm = 0;
+    for (let i = 1; i < coords.length; i++) straightKm += haversineMetres(coords[i - 1], coords[i]);
+    straightKm /= 1000;
 
-  // Primary: Valhalla map-matching with `bus` costing. Unlike a routing service,
-  // map-matching fits a road-following line to the stop sequence *without* forcing
-  // an exact visit to each stop, so it avoids the out-and-back "spur" artifacts
-  // and follows only bus-accessible roads. Its length tracks the real LTA route
-  // distance closely. If a match looks broken (dropped a chunk, endpoints far
-  // from the terminals — see isPlausiblePath), fall back to OSRM.
-  let line = null;
-  try {
-    const matched = await fetchValhallaPath(coords);
-    if (isPlausiblePath(matched, coords, straightKm, ltaKm)) line = matched;
-  } catch { /* fall through to OSRM */ }
+    // Primary: Valhalla map-matching with `bus` costing. Unlike a routing service,
+    // map-matching fits a road-following line to the stop sequence *without* forcing
+    // an exact visit to each stop, so it avoids the out-and-back "spur" artifacts
+    // and follows only bus-accessible roads. Its length tracks the real LTA route
+    // distance closely. If a match looks broken (dropped a chunk, endpoints far
+    // from the terminals — see isPlausiblePath), fall back to OSRM.
+    let line = null;
+    try {
+      const matched = await fetchValhallaPath(coords);
+      if (isPlausiblePath(matched, coords, straightKm, ltaKm)) line = matched;
+    } catch { /* fall through to OSRM */ }
 
-  if (!line) {
-    // Fallback: OSRM route service. It forces the line through every stop, which
-    // can produce spurs, so clean them. Loop / there-and-back services (first
-    // stop == last, e.g. 90/62/23) travel out and back by design, so only strip
-    // stop-free short retraces there; point-to-point routes may also drop a
-    // retrace that serves a single mis-snapped stop.
-    const osrm = await fetchOsrmPath(coords);
-    const first = routeRows[0].BusStopCode;
-    const last = routeRows[routeRows.length - 1].BusStopCode;
-    const isLoop = first === last
-      || haversineMetres(coords[0], coords[coords.length - 1]) < 400;
-    const opts = isLoop ? { MAX_STOPS: 0, MAX: 800 } : { MAX_STOPS: 1, MAX: 1500 };
-    const candidate = deSpur(osrm, coords, opts);
-    // Safety net: de-spurring must only smooth the line. If it added hairpins it
-    // removed something it shouldn't have, so keep the faithful OSRM line.
-    line = hairpinCount(candidate) > hairpinCount(osrm) ? osrm : candidate;
-  }
+    if (!line) {
+      // Fallback: OSRM route service. It forces the line through every stop, which
+      // can produce spurs, so clean them. Loop / there-and-back services (first
+      // stop == last, e.g. 90/62/23) travel out and back by design, so only strip
+      // stop-free short retraces there; point-to-point routes may also drop a
+      // retrace that serves a single mis-snapped stop.
+      const osrm = await fetchOsrmPath(coords);
+      const first = routeRows[0].BusStopCode;
+      const last = routeRows[routeRows.length - 1].BusStopCode;
+      const isLoop = first === last
+        || haversineMetres(coords[0], coords[coords.length - 1]) < 400;
+      const opts = isLoop ? { MAX_STOPS: 0, MAX: 800 } : { MAX_STOPS: 1, MAX: 1500 };
+      const candidate = deSpur(osrm, coords, opts);
+      // Safety net: de-spurring must only smooth the line. If it added hairpins it
+      // removed something it shouldn't have, so keep the faithful OSRM line.
+      line = hairpinCount(candidate) > hairpinCount(osrm) ? osrm : candidate;
+    }
 
-  roadPathCache.set(key, { at: Date.now(), coords: line });
-  return line;
+    roadPathCache.set(key, { at: Date.now(), coords: line });
+    pruneExpired(roadPathCache, ROAD_PATH_TTL);
+    return line;
+  })();
+
+  roadPathPromises.set(key, build);
+  try { return await build; }
+  finally { roadPathPromises.delete(key); }
 }
 
 // Map-match a stop sequence to roads via Valhalla (`bus` costing). Returns the
@@ -453,6 +514,7 @@ async function fetchStopArrivals(code) {
   const data = await fetchLta(`${LTA_BASE}/v3/BusArrival?BusStopCode=${encodeURIComponent(code)}`);
   const services = data.Services || [];
   arrivalsBatchCache.set(code, { at: Date.now(), services });
+  pruneExpired(arrivalsBatchCache, ARRIVALS_BATCH_TTL);
   return services;
 }
 
@@ -511,6 +573,7 @@ app.get('/api/postal', async (req, res) => {
       address: match.ADDRESS || match.SEARCHVAL || '',
     };
     postalCache.set(postal, { at: Date.now(), result });
+    pruneExpired(postalCache, POSTAL_TTL);
     res.json(result);
   } catch (err) {
     console.error('Postal lookup failed:', err.message);
