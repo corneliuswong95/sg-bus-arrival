@@ -490,12 +490,13 @@ app.get('/api/arrivals', async (req, res) => {
   if (!code) return res.status(400).json({ error: 'Bus stop code required.' });
 
   try {
-    const r = await fetch(`${LTA_BASE}/v3/BusArrival?BusStopCode=${encodeURIComponent(code)}`, {
-      headers: { AccountKey: LTA_API_KEY, accept: 'application/json' },
-    });
-    if (!r.ok) throw new Error(`LTA API error: ${r.status}`);
-    const data = await r.json();
-    res.json(data);
+    // Reuse the shared 20s per-stop cache (also feeds /api/arrivals-batch): a
+    // refresh-spamming client can't turn N hits into N upstream calls, and a stop
+    // already seen in the nearby list opens with no extra LTA call. LTA itself
+    // only updates ~every 20-30s, so this costs no meaningful freshness. Also
+    // inherits fetchLta's retry/backoff (the old raw fetch had none).
+    const services = await fetchStopArrivals(code);
+    res.json({ BusStopCode: code, Services: services });
   } catch (err) {
     console.error('Failed to fetch arrivals:', err.message);
     res.status(500).json({ error: 'Failed to fetch bus arrivals.' });
